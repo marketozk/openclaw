@@ -1202,7 +1202,7 @@ function applyLegacyOllamaProviderNumCtxParams(params: {
     provider: {
       ...params.provider,
       params: {
-        ...(rawParams ?? {}),
+        ...rawParams,
         num_ctx: numCtx,
       },
     },
@@ -1283,13 +1283,11 @@ export function normalizeLegacyOllamaNativeNumCtxParams(
       changes.push(
         `Set models.providers.${sanitizeForLog(providerId)}.models[${index}].params.num_ctx to ${numCtx} for native Ollama compatibility.`,
       );
-      return {
-        ...model,
-        params: {
-          ...(rawParams ?? {}),
+      return Object.assign({}, model, {
+        params: Object.assign({}, rawParams, {
           num_ctx: numCtx,
-        },
-      };
+        }),
+      });
     });
 
     if (!modelsChanged && !providerParams.changed) {
