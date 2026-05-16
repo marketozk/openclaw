@@ -80,11 +80,14 @@ describe("durable post-turn job state", () => {
 
       expect(recovery.crashedJobIds).toEqual([job.id]);
       expect(
-        await isPostTurnCircuitBreakerOpen({
-          kind: "plugin_hook",
-          hookName: "agent_end",
-          pluginId: "memory-plugin",
-        }),
+        await isPostTurnCircuitBreakerOpen(
+          {
+            kind: "plugin_hook",
+            hookName: "agent_end",
+            pluginId: "memory-plugin",
+          },
+          { now: 3_001 },
+        ),
       ).toBe(true);
 
       const state = await readPostTurnJobState();
@@ -99,8 +102,42 @@ describe("durable post-turn job state", () => {
         hookName: "agent_end",
         pluginId: "memory-plugin",
         openedAt: 3_000,
+        expiresAt: 903_000,
         crashCount: 1,
       });
+    });
+  });
+
+  it("expires circuit breakers after the cooldown window", async () => {
+    await withStateDirEnv("openclaw-post-turn-jobs-", async () => {
+      const {
+        createPostTurnJob,
+        isPostTurnCircuitBreakerOpen,
+        markPostTurnJobCrashed,
+        readPostTurnJobState,
+      } = await import("./durable-job-state.js");
+
+      const scope = {
+        kind: "plugin_hook" as const,
+        hookName: "agent_end",
+        pluginId: "memory-plugin",
+      };
+      const job = await createPostTurnJob({
+        ...scope,
+        label: "agent_end hook",
+      });
+      await markPostTurnJobCrashed(job.id, {
+        now: 10_000,
+        reason: "worker exited with code 139",
+      });
+
+      expect(await isPostTurnCircuitBreakerOpen(scope, { now: 909_999 })).toBe(true);
+      expect(Object.values((await readPostTurnJobState()).circuitBreakers)[0]).toMatchObject({
+        expiresAt: 910_000,
+      });
+
+      expect(await isPostTurnCircuitBreakerOpen(scope, { now: 910_000 })).toBe(false);
+      expect((await readPostTurnJobState()).circuitBreakers).toEqual({});
     });
   });
 });

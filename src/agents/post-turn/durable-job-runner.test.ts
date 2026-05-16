@@ -50,13 +50,18 @@ describe("durable post-turn job runner", () => {
         reason: "worker exited with code 139",
       });
 
-      const result = await runDurablePostTurnJob({
-        kind: "plugin_hook",
-        hookName: "agent_end",
-        pluginId: "memory-plugin",
-        label: "agent_end hook",
-        work,
-      });
+      const result = await runDurablePostTurnJob(
+        {
+          kind: "plugin_hook",
+          hookName: "agent_end",
+          pluginId: "memory-plugin",
+          label: "agent_end hook",
+          work,
+        },
+        {
+          now: 10_001,
+        },
+      );
 
       expect(result.status).toBe("skipped");
       expect(work).not.toHaveBeenCalled();
@@ -66,6 +71,45 @@ describe("durable post-turn job runner", () => {
         pluginId: "memory-plugin",
         status: "skipped",
         lastError: expect.stringContaining("circuit breaker"),
+      });
+    });
+  });
+
+  it("allows matching work to retry after the crash circuit breaker cooldown expires", async () => {
+    await withStateDirEnv("openclaw-post-turn-runner-", async () => {
+      const { createPostTurnJob, markPostTurnJobCrashed, readPostTurnJobState } = await import(
+        "./durable-job-state.js"
+      );
+      const { runDurablePostTurnJob } = await import("./durable-job-runner.js");
+      const work = vi.fn(async () => "recovered");
+      const scope = {
+        kind: "plugin_hook" as const,
+        hookName: "agent_end",
+        pluginId: "memory-plugin",
+      };
+
+      const crashed = await createPostTurnJob({
+        ...scope,
+        label: "agent_end hook",
+      });
+      await markPostTurnJobCrashed(crashed.id, {
+        now: 10_000,
+        reason: "worker exited with code 139",
+      });
+
+      const result = await runDurablePostTurnJob(
+        {
+          ...scope,
+          label: "agent_end hook",
+          work,
+        },
+        { now: 910_001 },
+      );
+
+      expect(result).toEqual({ status: "completed", result: "recovered" });
+      expect(work).toHaveBeenCalledOnce();
+      expect((await readPostTurnJobState()).jobs.at(-1)).toMatchObject({
+        status: "completed",
       });
     });
   });

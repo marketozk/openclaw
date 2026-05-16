@@ -1301,6 +1301,35 @@ describe("createFollowupRunner messaging delivery and dedupe", () => {
     expect(order).toEqual(["runEmbeddedPiAgent", "onBlockReply", "afterSourceReplyDelivery"]);
   });
 
+  it("runs after-source-delivery callbacks when the agent returns no payloads", async () => {
+    const order: string[] = [];
+    let registerAfterDelivery:
+      | ((callback: () => void | Promise<void>) => void)
+      | undefined;
+    runEmbeddedPiAgentMock.mockImplementationOnce(async (params) => {
+      order.push("runEmbeddedPiAgent");
+      registerAfterDelivery = (
+        params as {
+          afterSourceReplyDelivery?: (callback: () => void | Promise<void>) => void;
+        }
+      ).afterSourceReplyDelivery;
+      registerAfterDelivery?.(() => {
+        order.push("afterSourceReplyDelivery");
+      });
+      return {
+        payloads: [],
+        meta: {},
+      };
+    });
+
+    const runner = createMessagingDedupeRunner(vi.fn());
+    await runner(baseQueuedRun());
+    await Promise.resolve();
+
+    expect(registerAfterDelivery).toBeTypeOf("function");
+    expect(order).toEqual(["runEmbeddedPiAgent", "afterSourceReplyDelivery"]);
+  });
+
   it("does not wait for after-source-delivery callbacks before followup cleanup", async () => {
     const order: string[] = [];
     const typing = createMockTypingController();

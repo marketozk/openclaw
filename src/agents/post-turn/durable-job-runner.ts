@@ -28,7 +28,7 @@ export async function runDurablePostTurnJob<TResult>(
   options?: DurablePostTurnJobRunOptions,
 ): Promise<DurablePostTurnJobRunResult<TResult>> {
   const job = await createPostTurnJob(params, options);
-  if (await isPostTurnCircuitBreakerOpen(params)) {
+  if (await isPostTurnCircuitBreakerOpen(params, { now: options?.now })) {
     const reason = `post-turn circuit breaker is open for ${params.kind}`;
     await markPostTurnJobSkipped(job.id, { reason, now: options?.now });
     return { status: "skipped", reason };

@@ -44,6 +44,7 @@ export type PostTurnCircuitBreakerRecord = PostTurnCircuitScope & {
   key: string;
   openedAt: number;
   updatedAt: number;
+  expiresAt?: number;
   crashCount: number;
   lastJobId?: string;
   reason: string;
@@ -62,6 +63,7 @@ type MutationOptions = {
 };
 
 const MAX_RETAINED_POST_TURN_JOBS = 500;
+const POST_TURN_CIRCUIT_BREAKER_COOLDOWN_MS = 15 * 60 * 1000;
 const POST_TURN_JOB_STATE_RELATIVE_PATH = path.join("post-turn", "jobs.json");
 const POST_TURN_BOOT_ID = randomUUID();
 const withPostTurnJobStateLock = createAsyncLock();
@@ -163,6 +165,12 @@ function updateJob(
   return updated;
 }
 
+function resolvePostTurnCircuitBreakerExpiresAt(
+  breaker: PostTurnCircuitBreakerRecord,
+): number {
+  return breaker.expiresAt ?? breaker.updatedAt + POST_TURN_CIRCUIT_BREAKER_COOLDOWN_MS;
+}
+
 function openCircuitBreakerForJob(params: {
   state: PostTurnJobState;
   job: PostTurnJobRecord;
@@ -177,6 +185,7 @@ function openCircuitBreakerForJob(params: {
     ...scope,
     openedAt: existing?.openedAt ?? params.now,
     updatedAt: params.now,
+    expiresAt: params.now + POST_TURN_CIRCUIT_BREAKER_COOLDOWN_MS,
     crashCount: (existing?.crashCount ?? 0) + 1,
     lastJobId: params.job.id,
     reason: params.reason,
@@ -309,10 +318,22 @@ export async function markPostTurnJobCrashed(
 
 export async function isPostTurnCircuitBreakerOpen(
   scope: PostTurnCircuitScope,
+  options?: Pick<MutationOptions, "now">,
 ): Promise<boolean> {
-  return withPostTurnJobStateLock(async () => {
-    const state = await readStateUnlocked();
-    return Boolean(state.circuitBreakers[buildPostTurnCircuitBreakerKey(scope)]);
+  const checkedAt = nowMs(options);
+  return mutatePostTurnJobState((state) => {
+    const key = buildPostTurnCircuitBreakerKey(scope);
+    const breaker = state.circuitBreakers[key];
+    if (!breaker) {
+      return false;
+    }
+    const expiresAt = resolvePostTurnCircuitBreakerExpiresAt(breaker);
+    if (expiresAt <= checkedAt) {
+      delete state.circuitBreakers[key];
+      return false;
+    }
+    breaker.expiresAt = expiresAt;
+    return true;
   });
 }
 

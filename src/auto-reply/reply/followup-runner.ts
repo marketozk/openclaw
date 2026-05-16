@@ -449,6 +449,7 @@ export function createFollowupRunner(params: {
 
       const payloadArray = runResult.payloads ?? [];
       if (payloadArray.length === 0) {
+        scheduleAfterSourceReplyDeliveryCallbacks();
         return;
       }
       const sanitizedPayloads = payloadArray.flatMap((payload) => {
