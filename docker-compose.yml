@@ -1,7 +1,10 @@
 services:
   openclaw-gateway:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
-    build: .
+    build:
+      context: .
+      args:
+        OPENCLAW_EXTENSIONS: ${OPENCLAW_EXTENSIONS:-codex}
     env_file:
       - path: .env
         required: false

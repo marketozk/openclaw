@@ -200,6 +200,24 @@ describe("Dockerfile", () => {
     );
   });
 
+  it("copies dist-runtime plugin overlays into runtime images", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    expect(dockerfile).toContain(
+      "COPY --from=runtime-assets --chown=node:node /app/dist-runtime ./dist-runtime",
+    );
+  });
+
+  it("builds the compose gateway image with the Codex bundled extension", async () => {
+    const compose = YAML.parse(await readFile(join(repoRoot, "docker-compose.yml"), "utf8")) as {
+      services?: Record<string, { build?: unknown }>;
+    };
+
+    expect(compose.services?.["openclaw-gateway"]?.build).toMatchObject({
+      context: ".",
+      args: { OPENCLAW_EXTENSIONS: "${OPENCLAW_EXTENSIONS:-codex}" },
+    });
+  });
+
   it("keeps package manager patch files in runtime images", async () => {
     const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
     const pnpmWorkspace = YAML.parse(await readFile(pnpmWorkspacePath, "utf8")) as {
