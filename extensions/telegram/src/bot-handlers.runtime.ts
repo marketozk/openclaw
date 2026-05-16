@@ -178,6 +178,7 @@ export const registerTelegramHandlers = ({
           Number.isFinite(telegramCfg.mediaGroupFlushMs)
         ? Math.max(10, Math.floor(telegramCfg.mediaGroupFlushMs))
         : MEDIA_GROUP_TIMEOUT_MS;
+  const TELEGRAM_FORBIDDEN_REPLY = "Доступ запрещён.";
 
   type BufferedMediaGroupEntry = MediaGroupEntry & {
     storeAllowFrom: string[];
@@ -1012,7 +1013,44 @@ export const registerTelegramHandlers = ({
     );
   };
 
-  const shouldSkipGroupMessage = (params: {
+  const sendForbiddenGroupAccessReply = async (params: {
+    chatId: string | number;
+    messageThreadId?: number;
+    messageId?: number;
+  }) => {
+    await withTelegramApiErrorLogging({
+      operation: "sendMessage",
+      runtime,
+      fn: () =>
+        bot.api.sendMessage(params.chatId, TELEGRAM_FORBIDDEN_REPLY, {
+          ...(params.messageThreadId != null ? { message_thread_id: params.messageThreadId } : {}),
+          ...(params.messageId != null
+            ? {
+                reply_parameters: {
+                  message_id: params.messageId,
+                  allow_sending_without_reply: true,
+                },
+              }
+            : {}),
+        }),
+    }).catch((err) => {
+      logVerbose(`telegram forbidden access reply failed for chat ${params.chatId}: ${String(err)}`);
+    });
+  };
+
+  const maybeSendForbiddenGroupAccessReply = async (params: {
+    notifyForbidden?: boolean;
+    chatId: string | number;
+    messageThreadId?: number;
+    messageId?: number;
+  }) => {
+    if (!params.notifyForbidden) {
+      return;
+    }
+    await sendForbiddenGroupAccessReply(params);
+  };
+
+  const shouldSkipGroupMessage = async (params: {
     isGroup: boolean;
     chatId: string | number;
     chatTitle?: string;
@@ -1023,6 +1061,9 @@ export const registerTelegramHandlers = ({
     hasGroupAllowOverride: boolean;
     groupConfig?: TelegramGroupConfig;
     topicConfig?: TelegramTopicConfig;
+    notifyForbidden?: boolean;
+    messageThreadId?: number;
+    messageId?: number;
   }) => {
     const {
       isGroup,
@@ -1050,22 +1091,31 @@ export const registerTelegramHandlers = ({
     if (!baseAccess.allowed) {
       if (baseAccess.reason === "group-disabled") {
         logVerbose(`Blocked telegram group ${chatId} (group disabled)`);
+        await maybeSendForbiddenGroupAccessReply(params);
         return true;
       }
       if (baseAccess.reason === "topic-disabled") {
         logVerbose(
           `Blocked telegram topic ${chatId} (${resolvedThreadId ?? "unknown"}) (topic disabled)`,
         );
+        await maybeSendForbiddenGroupAccessReply(params);
         return true;
       }
       logVerbose(
         `Blocked telegram group sender ${senderId || "unknown"} (group allowFrom override)`,
       );
+      await maybeSendForbiddenGroupAccessReply(params);
       return true;
     }
     if (!isGroup) {
       return false;
     }
+    const notifyPolicyForbidden = async () => {
+      await maybeSendForbiddenGroupAccessReply({
+        ...params,
+        messageThreadId: params.messageThreadId ?? resolvedThreadId,
+      });
+    };
     const policyAccess = evaluateTelegramGroupPolicyAccess({
       isGroup,
       chatId,
@@ -1087,23 +1137,28 @@ export const registerTelegramHandlers = ({
     if (!policyAccess.allowed) {
       if (policyAccess.reason === "group-policy-disabled") {
         logVerbose("Blocked telegram group message (groupPolicy: disabled)");
+        await notifyPolicyForbidden();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-no-sender") {
         logVerbose("Blocked telegram group message (no sender ID, groupPolicy: allowlist)");
+        await notifyPolicyForbidden();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-empty") {
         logVerbose(
           "Blocked telegram group message (groupPolicy: allowlist, no group allowlist entries)",
         );
+        await notifyPolicyForbidden();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-unauthorized") {
         logVerbose(`Blocked telegram group message from ${senderId} (groupPolicy: allowlist)`);
+        await notifyPolicyForbidden();
         return true;
       }
       logger.info({ chatId, title: chatTitle, reason: "not-allowed" }, "skipping group message");
+      await notifyPolicyForbidden();
       return true;
     }
     return false;
@@ -1219,7 +1274,7 @@ export const registerTelegramHandlers = ({
       deniedGroupReason,
     } = authRules;
     if (
-      shouldSkipGroupMessage({
+      await shouldSkipGroupMessage({
         isGroup,
         chatId,
         chatTitle,
@@ -2565,7 +2620,7 @@ export const registerTelegramHandlers = ({
       }
 
       if (
-        shouldSkipGroupMessage({
+        await shouldSkipGroupMessage({
           isGroup: event.isGroup,
           chatId: event.chatId,
           chatTitle: event.msg.chat.title,
@@ -2576,6 +2631,9 @@ export const registerTelegramHandlers = ({
           hasGroupAllowOverride,
           groupConfig,
           topicConfig,
+          notifyForbidden:
+            event.isGroup && hasBotMention(event.msg, event.ctx.me?.username ?? ""),
+          messageId: event.msg.message_id,
         })
       ) {
         return;

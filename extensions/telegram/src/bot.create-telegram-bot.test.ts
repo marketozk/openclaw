@@ -2692,6 +2692,35 @@ describe("createTelegramBot", () => {
       expect(replySpy.mock.calls.length, testCase.name).toBe(0);
     }
   });
+
+  it("sends a forbidden notice for mentioned unauthorized group messages", async () => {
+    resetHarnessSpies();
+    loadConfig.mockReturnValue({
+      channels: {
+        telegram: {
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["222222222"],
+          groups: { "*": { requireMention: true } },
+        },
+      },
+    });
+
+    await dispatchMessage({
+      message: {
+        chat: { id: -100123456789, type: "group", title: "Test Group" },
+        from: { id: 123456789, username: "testuser" },
+        text: "@openclaw_bot hello",
+        date: 1736380800,
+        message_id: 77,
+      },
+    });
+
+    expect(replySpy).not.toHaveBeenCalled();
+    expect(sendMessageSpy).toHaveBeenCalledWith(-100123456789, "Доступ запрещён.", {
+      reply_parameters: { message_id: 77, allow_sending_without_reply: true },
+    });
+  });
+
   it("blocks group sender not in groupAllowFrom even when sender is paired in DM store", async () => {
     resetHarnessSpies();
     loadConfig.mockReturnValue({
