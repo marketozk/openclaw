@@ -86,6 +86,23 @@ describe("telegram group access requests", () => {
     expect(second.request.dedupeKey).toBe("-100123456789:99:1281388780");
   });
 
+  it("keeps generated callback data inside Telegram's 64-byte limit", async () => {
+    const storePath = await makeStorePath();
+    const { request } = await upsertTelegramGroupAccessRequest({
+      storePath,
+      input: makeInput({
+        chatId: "-1001234567890123",
+        messageThreadId: 2147483647,
+        senderId: "12345678901",
+      }),
+    });
+    const keyboard = buildTelegramGroupAccessOwnerKeyboard(request.id);
+    const callbackData = keyboard.inline_keyboard.flat().map((button) => button.callback_data);
+
+    expect(callbackData).toHaveLength(3);
+    expect(callbackData.every((data) => Buffer.byteLength(data, "utf8") <= 64)).toBe(true);
+  });
+
   it("parses compact callback data", () => {
     const callbackData = buildTelegramGroupAccessCallbackData({
       requestId: "tgreq_abc123",
@@ -121,6 +138,15 @@ describe("telegram group access requests", () => {
     expect(text).toContain("@openclaw_bot можно?");
   });
 
+  it("bounds long owner notification evidence", () => {
+    const text = buildTelegramGroupAccessOwnerMessage({
+      request: makeRequest({ messageText: `@openclaw_bot ${"x".repeat(5000)}` }),
+    });
+
+    expect(text.length).toBeLessThan(4096);
+    expect(text).toContain("...[truncated]");
+  });
+
   it("builds owner action buttons", () => {
     expect(buildTelegramGroupAccessOwnerKeyboard("tgreq_abc123")).toEqual({
       inline_keyboard: [
@@ -147,6 +173,7 @@ describe("telegram group access requests", () => {
     expect(result.changed).toBe(true);
     expect((cfg as any).channels.telegram.groups["-100123456789"]).toEqual({
       requireMention: true,
+      allowFrom: ["*"],
     });
     expect((cfg as any).channels.telegram.groupAllowFrom).toBeUndefined();
   });
@@ -215,6 +242,32 @@ describe("telegram group access requests", () => {
     expect(first.ownerNotified).toBe(true);
     expect(second.ownerNotified).toBe(false);
     expect(sent).toHaveLength(1);
+  });
+
+  it("continues notifying later owners when one owner delivery fails", async () => {
+    const storePath = await makeStorePath();
+    const sent: Array<string | number> = [];
+    const cfg = {
+      commands: { ownerAllowFrom: ["telegram:6673887542", "telegram:1281388780"] },
+    } as never;
+
+    const result = await createTelegramGroupAccessRequestAndNotifyOwner({
+      cfg,
+      storePath,
+      botApi: {
+        sendMessage: async (chatId) => {
+          if (chatId === 6673887542) {
+            throw new Error("blocked");
+          }
+          sent.push(chatId);
+          return { message_id: 2 };
+        },
+      },
+      input: makeInput(),
+    });
+
+    expect(result.ownerNotified).toBe(true);
+    expect(sent).toEqual([1281388780]);
   });
 
   it("resolves approval callbacks through config mutation and request state", async () => {

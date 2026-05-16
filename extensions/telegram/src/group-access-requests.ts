@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { mutateConfigFile as mutateConfigFileFn } from "openclaw/plugin-sdk/config-mutation";
 import { readJsonFileWithFallback, writeJsonFileAtomically } from "openclaw/plugin-sdk/json-store";
 
 export const TELEGRAM_GROUP_ACCESS_CALLBACK_PREFIX = "OC_TG_AR";
+const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
+const REQUEST_ID_HASH_BYTES = 20;
+const OWNER_MESSAGE_TEXT_MAX_CHARS = 1200;
 
 export type TelegramGroupAccessAction = "allow_chat" | "allow_chat_user" | "deny";
 
@@ -69,8 +73,11 @@ function buildDedupeKey(input: TelegramGroupAccessRequestInput): string {
 }
 
 function buildRequestId(input: TelegramGroupAccessRequestInput): string {
-  const source = buildDedupeKey(input).replace(/[^a-zA-Z0-9_-]+/g, "_");
-  return `tgreq_${source}`.slice(0, 48);
+  const digest = createHash("sha256")
+    .update(buildDedupeKey(input))
+    .digest("base64url")
+    .slice(0, REQUEST_ID_HASH_BYTES);
+  return `tgreq_${digest}`;
 }
 
 async function loadStore(storePath: string): Promise<TelegramGroupAccessRequestStore> {
@@ -147,7 +154,11 @@ export function buildTelegramGroupAccessCallbackData(params: {
   requestId: string;
   action: TelegramGroupAccessAction;
 }): string {
-  return `${TELEGRAM_GROUP_ACCESS_CALLBACK_PREFIX}|${params.requestId}|${params.action}`;
+  const data = `${TELEGRAM_GROUP_ACCESS_CALLBACK_PREFIX}|${params.requestId}|${params.action}`;
+  if (Buffer.byteLength(data, "utf8") > TELEGRAM_CALLBACK_DATA_MAX_BYTES) {
+    throw new Error("Telegram group access callback data exceeds Telegram's 64-byte limit");
+  }
+  return data;
 }
 
 export function parseTelegramGroupAccessCallbackData(
@@ -166,6 +177,14 @@ export function parseTelegramGroupAccessCallbackData(
 function escapeLine(value: unknown): string {
   const text = String(value ?? "").trim();
   return text.length > 0 ? text : "unknown";
+}
+
+function truncateOwnerMessageText(value: string | undefined): string {
+  const text = value?.trim() || "<empty>";
+  if (text.length <= OWNER_MESSAGE_TEXT_MAX_CHARS) {
+    return text;
+  }
+  return `${text.slice(0, OWNER_MESSAGE_TEXT_MAX_CHARS)}\n...[truncated]`;
 }
 
 export function resolveTelegramGroupAccessOwnerChatIds(cfg: OpenClawConfig): string[] {
@@ -201,7 +220,7 @@ export function buildTelegramGroupAccessOwnerMessage(params: {
     `User ID: ${request.senderId}`,
     "",
     "Сообщение:",
-    request.messageText?.trim() || "<empty>",
+    truncateOwnerMessageText(request.messageText),
     "",
     `Request ID: ${request.id}`,
     `Повторов: ${request.count}`,
@@ -251,6 +270,7 @@ export function applyTelegramGroupAccessDecisionToConfig(params: {
   telegram.groups[params.request.chatId] = {
     ...(telegram.groups[params.request.chatId] ?? {}),
     requireMention: true,
+    ...(params.action === "allow_chat" ? { allowFrom: ["*"] } : {}),
   };
 
   if (params.action === "allow_chat_user") {
@@ -303,12 +323,22 @@ export async function createTelegramGroupAccessRequestAndNotifyOwner(params: {
   let ownerNotificationChatId: string | undefined;
   let ownerNotificationMessageId: number | undefined;
   for (const owner of owners) {
-    const result = await params.botApi.sendMessage(Number(owner), text, { reply_markup: keyboard });
-    ownerNotified = true;
-    ownerNotificationChatId = owner;
-    if (result && typeof result === "object" && "message_id" in result) {
-      ownerNotificationMessageId = Number(result.message_id);
+    try {
+      const result = await params.botApi.sendMessage(Number(owner), text, {
+        reply_markup: keyboard,
+      });
+      ownerNotified = true;
+      ownerNotificationChatId = owner;
+      if (result && typeof result === "object" && "message_id" in result) {
+        ownerNotificationMessageId = Number(result.message_id);
+      }
+    } catch {
+      // Try every configured owner; one blocked/deleted DM must not prevent other owners from seeing it.
     }
+  }
+
+  if (!ownerNotified) {
+    return { request: upsert.request, ownerNotified: false };
   }
 
   const updatedRequest =
