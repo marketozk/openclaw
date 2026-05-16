@@ -2422,6 +2422,104 @@ describe("createTelegramBot", () => {
     });
   }
 
+  it("creates an owner access request for denied mentioned group messages", async () => {
+    resetHarnessSpies();
+    loadConfig.mockReturnValue({
+      commands: { ownerAllowFrom: ["telegram:6673887542"] },
+      session: { store: `/tmp/openclaw-access-request-create-${Date.now()}/sessions.json` },
+      channels: {
+        telegram: {
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["6673887542"],
+          groups: {},
+        },
+      },
+    });
+
+    await dispatchMessage({
+      message: {
+        chat: { id: -100123456789, type: "group", title: "Test Group" },
+        from: { id: 1281388780, username: "mystery_63", first_name: "Татьяна" },
+        text: "@openclaw_bot можно пользоваться тут?",
+        date: 1736380800,
+        message_id: 77,
+      },
+      me: { username: "openclaw_bot" },
+    });
+
+    expect(replySpy).not.toHaveBeenCalled();
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      6673887542,
+      expect.stringContaining("Запрос доступа к Telegram-чату"),
+      expect.objectContaining({
+        reply_markup: expect.objectContaining({ inline_keyboard: expect.any(Array) }),
+      }),
+    );
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      -100123456789,
+      "Доступ запрещён. Запрос отправлен владельцу.",
+      expect.objectContaining({
+        reply_parameters: { message_id: 77, allow_sending_without_reply: true },
+      }),
+    );
+  });
+
+  it("approves a Telegram group access request from owner callback", async () => {
+    resetHarnessSpies();
+    const configWriteSpy = mockTelegramConfigWrites();
+    loadConfig.mockReturnValue({
+      commands: { ownerAllowFrom: ["telegram:6673887542"] },
+      session: { store: `/tmp/openclaw-access-request-callback-${Date.now()}/sessions.json` },
+      channels: {
+        telegram: { groupPolicy: "allowlist", groupAllowFrom: ["6673887542"], groups: {} },
+      },
+    });
+
+    await dispatchMessage({
+      message: {
+        chat: { id: -100123456789, type: "group", title: "Test Group" },
+        from: { id: 1281388780, username: "mystery_63", first_name: "Татьяна" },
+        text: "@openclaw_bot можно пользоваться тут?",
+        date: 1736380800,
+        message_id: 77,
+      },
+      me: { username: "openclaw_bot" },
+    });
+
+    const ownerCall = sendMessageSpy.mock.calls.find((call) => call[0] === 6673887542);
+    const keyboard = ownerCall?.[2]?.reply_markup?.inline_keyboard;
+    const callbackData = keyboard?.[0]?.[0]?.callback_data;
+    expect(callbackData).toMatch(/^OC_TG_AR\|/);
+
+    const handler = getOnHandler("callback_query") as (
+      ctx: Record<string, unknown>,
+    ) => Promise<void>;
+    await handler({
+      callbackQuery: {
+        id: "cbq-access-1",
+        data: callbackData,
+        from: { id: 6673887542, username: "Cyberbort" },
+        message: {
+          chat: { id: 6673887542, type: "private" },
+          date: 1736380800,
+          message_id: 500,
+          text: "request",
+        },
+      },
+      me: { username: "openclaw_bot" },
+      getFile: async () => ({}),
+    });
+
+    expect(answerCallbackQuerySpy).toHaveBeenCalled();
+    expect(configWriteSpy).toHaveBeenCalled();
+    expect(editMessageTextSpy).toHaveBeenCalledWith(
+      6673887542,
+      500,
+      expect.stringContaining("Разрешено"),
+      expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
+    );
+  });
+
   it("accepts mentionPatterns matches with and without unrelated mentions", async () => {
     const cases = [
       {

@@ -108,6 +108,13 @@ import {
   evaluateTelegramGroupBaseAccess,
   evaluateTelegramGroupPolicyAccess,
 } from "./group-access.js";
+import {
+  createTelegramGroupAccessRequestAndNotifyOwner,
+  parseTelegramGroupAccessCallbackData,
+  resolveTelegramGroupAccessOwnerChatIds,
+  resolveTelegramGroupAccessRequestDecision,
+  resolveTelegramGroupAccessRequestsPath,
+} from "./group-access-requests.js";
 import { migrateTelegramGroupConfig } from "./group-migration.js";
 import {
   resolveTelegramCommandIngressAuthorization,
@@ -1017,12 +1024,14 @@ export const registerTelegramHandlers = ({
     chatId: string | number;
     messageThreadId?: number;
     messageId?: number;
+    text?: string;
   }) => {
+    const text = params.text ?? TELEGRAM_FORBIDDEN_REPLY;
     await withTelegramApiErrorLogging({
       operation: "sendMessage",
       runtime,
       fn: () =>
-        bot.api.sendMessage(params.chatId, TELEGRAM_FORBIDDEN_REPLY, {
+        bot.api.sendMessage(params.chatId, text, {
           ...(params.messageThreadId != null ? { message_thread_id: params.messageThreadId } : {}),
           ...(params.messageId != null
             ? {
@@ -1043,6 +1052,7 @@ export const registerTelegramHandlers = ({
     chatId: string | number;
     messageThreadId?: number;
     messageId?: number;
+    text?: string;
   }) => {
     if (!params.notifyForbidden) {
       return;
@@ -1054,9 +1064,11 @@ export const registerTelegramHandlers = ({
     isGroup: boolean;
     chatId: string | number;
     chatTitle?: string;
+    chatType?: string;
     resolvedThreadId?: number;
     senderId: string;
     senderUsername: string;
+    senderName?: string;
     effectiveGroupAllow: NormalizedAllowFrom;
     hasGroupAllowOverride: boolean;
     groupConfig?: TelegramGroupConfig;
@@ -1064,6 +1076,7 @@ export const registerTelegramHandlers = ({
     notifyForbidden?: boolean;
     messageThreadId?: number;
     messageId?: number;
+    messageText?: string;
   }) => {
     const {
       isGroup,
@@ -1078,9 +1091,37 @@ export const registerTelegramHandlers = ({
       topicConfig,
     } = params;
     const notifyForbiddenAccess = async () => {
+      let replyText = TELEGRAM_FORBIDDEN_REPLY;
+      if (isGroup && params.notifyForbidden) {
+        const requestResult = await createTelegramGroupAccessRequestAndNotifyOwner({
+          cfg,
+          storePath: resolveTelegramGroupAccessRequestsPath(
+            telegramDeps.resolveStorePath(cfg.session?.store),
+          ),
+          botApi: bot.api,
+          input: {
+            chatId: String(chatId),
+            chatTitle,
+            chatType: params.chatType,
+            messageThreadId: params.messageThreadId ?? resolvedThreadId,
+            senderId,
+            senderUsername,
+            senderName: params.senderName,
+            messageId: params.messageId,
+            messageText: params.messageText,
+          },
+        }).catch((err) => {
+          logVerbose(`telegram group access request failed for chat ${chatId}: ${String(err)}`);
+          return undefined;
+        });
+        if (requestResult?.ownerNotified) {
+          replyText = "Доступ запрещён. Запрос отправлен владельцу.";
+        }
+      }
       await maybeSendForbiddenGroupAccessReply({
         ...params,
         messageThreadId: params.messageThreadId ?? resolvedThreadId,
+        text: replyText,
       });
     };
     const baseAccess = evaluateTelegramGroupBaseAccess({
@@ -1887,6 +1928,28 @@ export const registerTelegramHandlers = ({
       const chatId = callbackMessage.chat.id;
       const isGroup =
         callbackMessage.chat.type === "group" || callbackMessage.chat.type === "supergroup";
+      const groupAccessCallback = parseTelegramGroupAccessCallbackData(data);
+      if (groupAccessCallback) {
+        const ownerId = String(callback.from?.id ?? "");
+        const ownerAllowed = resolveTelegramGroupAccessOwnerChatIds(cfg).includes(ownerId);
+        if (!ownerAllowed) {
+          await editCallbackMessage("Эту заявку может обработать только владелец.", {
+            reply_markup: { inline_keyboard: [] },
+          });
+          return;
+        }
+        const result = await resolveTelegramGroupAccessRequestDecision({
+          storePath: resolveTelegramGroupAccessRequestsPath(
+            telegramDeps.resolveStorePath(cfg.session?.store),
+          ),
+          requestId: groupAccessCallback.requestId,
+          action: groupAccessCallback.action,
+          ownerId,
+          mutateConfigFile,
+        });
+        await editCallbackMessage(result.text, { reply_markup: { inline_keyboard: [] } });
+        return;
+      }
       const approvalCallback = parseExecApprovalCommandText(data);
       const isApprovalCallback = approvalCallback !== null;
       const inlineButtonsScope = resolveTelegramInlineButtonsScope({
@@ -2624,9 +2687,13 @@ export const registerTelegramHandlers = ({
           isGroup: event.isGroup,
           chatId: event.chatId,
           chatTitle: event.msg.chat.title,
+          chatType: event.msg.chat.type,
           resolvedThreadId,
           senderId: event.senderId,
           senderUsername: event.senderUsername,
+          senderName: event.msg.from
+            ? [event.msg.from.first_name, event.msg.from.last_name].filter(Boolean).join(" ").trim()
+            : undefined,
           effectiveGroupAllow,
           hasGroupAllowOverride,
           groupConfig,
@@ -2634,6 +2701,10 @@ export const registerTelegramHandlers = ({
           notifyForbidden:
             event.isGroup && hasBotMention(event.msg, event.ctx.me?.username ?? ""),
           messageId: event.msg.message_id,
+          messageText:
+            typeof (event.msg as { text?: unknown }).text === "string"
+              ? (event.msg as { text: string }).text
+              : undefined,
         })
       ) {
         return;

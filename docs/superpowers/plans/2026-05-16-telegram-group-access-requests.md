@@ -60,7 +60,7 @@
 - Create: `extensions/telegram/src/group-access-requests.ts`
 - Create: `extensions/telegram/src/group-access-requests.test.ts`
 
-- [ ] **Step 1: Write failing tests for state path, ids, dedupe, and callback parsing**
+- [x] **Step 1: Write failing tests for state path, ids, dedupe, and callback parsing**
 
 Add this test file:
 
@@ -147,7 +147,7 @@ describe("telegram group access requests", () => {
 });
 ```
 
-- [ ] **Step 2: Run the unit test to verify it fails**
+- [x] **Step 2: Run the unit test to verify it fails**
 
 Run:
 
@@ -157,7 +157,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: FAIL because `group-access-requests.ts` does not exist.
 
-- [ ] **Step 3: Implement the state and callback core**
+- [x] **Step 3: Implement the state and callback core**
 
 Create `extensions/telegram/src/group-access-requests.ts`:
 
@@ -290,7 +290,7 @@ export function parseTelegramGroupAccessCallbackData(
 }
 ```
 
-- [ ] **Step 4: Run the unit test to verify it passes**
+- [x] **Step 4: Run the unit test to verify it passes**
 
 Run:
 
@@ -300,7 +300,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/group-access-requests.test.ts
@@ -315,7 +315,7 @@ git commit -m "Add Telegram group access request store"
 - Modify: `extensions/telegram/src/group-access-requests.ts`
 - Modify: `extensions/telegram/src/group-access-requests.test.ts`
 
-- [ ] **Step 1: Add failing tests for owner extraction and notification payload**
+- [x] **Step 1: Add failing tests for owner extraction and notification payload**
 
 Append tests:
 
@@ -366,7 +366,7 @@ it("builds owner action buttons", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -376,7 +376,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: FAIL because the new exports do not exist.
 
-- [ ] **Step 3: Implement owner helpers**
+- [x] **Step 3: Implement owner helpers**
 
 Add to `group-access-requests.ts`:
 
@@ -460,7 +460,7 @@ export function buildTelegramGroupAccessOwnerKeyboard(requestId: string): {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -470,7 +470,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/group-access-requests.test.ts
@@ -485,7 +485,7 @@ git commit -m "Render Telegram group access owner requests"
 - Modify: `extensions/telegram/src/group-access-requests.ts`
 - Modify: `extensions/telegram/src/group-access-requests.test.ts`
 
-- [ ] **Step 1: Write failing tests for approve/deny draft mutations**
+- [x] **Step 1: Write failing tests for approve/deny draft mutations**
 
 Append:
 
@@ -561,7 +561,7 @@ it("deny does not mutate config", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -571,7 +571,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: FAIL because `applyTelegramGroupAccessDecisionToConfig` is missing.
 
-- [ ] **Step 3: Implement config draft mutation**
+- [x] **Step 3: Implement config draft mutation**
 
 Add:
 
@@ -610,7 +610,7 @@ export function applyTelegramGroupAccessDecisionToConfig(params: {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -620,7 +620,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/group-access-requests.test.ts
@@ -636,7 +636,7 @@ git commit -m "Add Telegram group access config decisions"
 - Modify: `extensions/telegram/src/bot-handlers.runtime.ts`
 - Modify: `extensions/telegram/src/bot.create-telegram-bot.test.ts`
 
-- [ ] **Step 1: Add integration test for denied group mention creating owner request**
+- [x] **Step 1: Add integration test for denied group mention creating owner request**
 
 In `bot.create-telegram-bot.test.ts`, add near the existing forbidden tests:
 
@@ -683,7 +683,7 @@ it("creates an owner access request for denied mentioned group messages", async 
 });
 ```
 
-- [ ] **Step 2: Run integration test to verify failure**
+- [x] **Step 2: Run integration test to verify failure**
 
 Run:
 
@@ -693,7 +693,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: FAIL because the handler still only sends `Доступ запрещён.`
 
-- [ ] **Step 3: Add service function to create and notify requests**
+- [x] **Step 3: Add service function to create and notify requests**
 
 Add to `group-access-requests.ts`:
 
@@ -730,7 +730,7 @@ export async function createTelegramGroupAccessRequestAndNotifyOwner(params: {
 }
 ```
 
-- [ ] **Step 4: Integrate it in `bot-handlers.runtime.ts`**
+- [x] **Step 4: Integrate it in `bot-handlers.runtime.ts`**
 
 Import:
 
@@ -822,7 +822,7 @@ const messageText = typeof (event.msg as { text?: unknown }).text === "string"
   : undefined;
 ```
 
-- [ ] **Step 5: Run integration test**
+- [x] **Step 5: Run integration test**
 
 Run:
 
@@ -832,7 +832,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/bot-handlers.runtime.ts extensions/telegram/src/bot.create-telegram-bot.test.ts
@@ -848,7 +848,7 @@ git commit -m "Create Telegram group access requests on denied mentions"
 - Modify: `extensions/telegram/src/bot-handlers.runtime.ts`
 - Modify: `extensions/telegram/src/bot.create-telegram-bot.test.ts`
 
-- [ ] **Step 1: Add failing callback integration tests**
+- [x] **Step 1: Add failing callback integration tests**
 
 Add tests:
 
@@ -894,7 +894,7 @@ it("approves a Telegram group access request from owner callback", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run:
 
@@ -904,7 +904,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: FAIL because `OC_TG_AR` callbacks are not handled.
 
-- [ ] **Step 3: Implement request resolution**
+- [x] **Step 3: Implement request resolution**
 
 Add to `group-access-requests.ts`:
 
@@ -956,7 +956,7 @@ export async function resolveTelegramGroupAccessRequestDecision(params: {
 }
 ```
 
-- [ ] **Step 4: Integrate callback branch**
+- [x] **Step 4: Integrate callback branch**
 
 In `bot-handlers.runtime.ts`, import:
 
@@ -993,7 +993,7 @@ Inside `bot.on("callback_query", ...)`, immediately after `const data = ...` and
       }
 ```
 
-- [ ] **Step 5: Run callback tests**
+- [x] **Step 5: Run callback tests**
 
 Run:
 
@@ -1003,7 +1003,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/bot-handlers.runtime.ts extensions/telegram/src/bot.create-telegram-bot.test.ts
@@ -1019,7 +1019,7 @@ git commit -m "Handle Telegram group access approval callbacks"
 - Modify: `extensions/telegram/src/group-access-requests.test.ts`
 - Modify: `extensions/telegram/src/bot.create-telegram-bot.test.ts`
 
-- [ ] **Step 1: Add failing cooldown tests**
+- [x] **Step 1: Add failing cooldown tests**
 
 Append:
 
@@ -1050,7 +1050,7 @@ it("does not notify owner again inside the cooldown window", async () => {
 });
 ```
 
-- [ ] **Step 2: Implement cooldown**
+- [x] **Step 2: Implement cooldown**
 
 Change `createTelegramGroupAccessRequestAndNotifyOwner` signature:
 
@@ -1097,7 +1097,7 @@ async function updateStoredRequest(
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run:
 
@@ -1107,7 +1107,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run extensio
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add extensions/telegram/src/group-access-requests.ts extensions/telegram/src/group-access-requests.test.ts extensions/telegram/src/bot.create-telegram-bot.test.ts
@@ -1121,7 +1121,7 @@ git commit -m "Deduplicate Telegram group access owner alerts"
 **Files:**
 - Modify after deployment: `C:\Users\regis\.codex\skills\openclaw-clawcode-schrodinger\references\installation-ledger.md`
 
-- [ ] **Step 1: Run focused Telegram tests on Schrodinger**
+- [x] **Step 1: Run focused Telegram tests on Schrodinger**
 
 Run from `/opt/openclaw/src`:
 
@@ -1134,7 +1134,7 @@ pnpm_config_verify_deps_before_run=false ./node_modules/.bin/vitest run \
 
 Expected: PASS.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run:
 
@@ -1144,7 +1144,7 @@ pnpm_config_verify_deps_before_run=false pnpm tsgo:prod
 
 Expected: PASS.
 
-- [ ] **Step 3: Run diff check**
+- [x] **Step 3: Run diff check**
 
 Run:
 
@@ -1154,7 +1154,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 4: Commit final integration if not already committed**
+- [x] **Step 4: Commit final integration if not already committed**
 
 Run:
 
@@ -1169,7 +1169,7 @@ git commit -m "Add Telegram group access request approvals"
 
 Expected: clean source commit.
 
-- [ ] **Step 5: Create rollback tag and rebuild Gateway**
+- [x] **Step 5: Create rollback tag and rebuild Gateway**
 
 Standing approval applies because this changes Gateway source/runtime.
 
@@ -1195,7 +1195,7 @@ docker compose -f docker-compose.yml \
 
 Expected: build succeeds and Gateway starts.
 
-- [ ] **Step 6: Verify runtime**
+- [x] **Step 6: Verify runtime**
 
 Run:
 
@@ -1214,7 +1214,7 @@ Expected:
 - only `127.0.0.1:18789`
 - Telegram provider starts as `@CyberClawGPT_bot`
 
-- [ ] **Step 7: Push branch through the existing bundle path**
+- [x] **Step 7: Push branch through the existing bundle path**
 
 Run on Schrodinger:
 
@@ -1235,7 +1235,7 @@ git -C $repo push origin codex/openclaw-telegram-guest-mode
 
 Expected: branch pushed to `marketozk/openclaw:codex/openclaw-telegram-guest-mode`.
 
-- [ ] **Step 8: Update ledger**
+- [x] **Step 8: Update ledger**
 
 Add a ledger entry with:
 - architecture: Telegram extension-owned access requests, no memory/router provider bypass;
