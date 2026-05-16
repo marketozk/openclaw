@@ -26,6 +26,10 @@ import { isSenderAllowed, normalizeAllowFrom } from "./bot-access.js";
 import type { TelegramBotDeps } from "./bot-deps.js";
 import { resolveMedia } from "./bot/delivery.resolve-media.js";
 import { hasInboundMedia, resolveInboundMediaFileId } from "./bot-handlers.media.js";
+import {
+  createTelegramGuestAccessRequestAndNotifyOwner,
+  resolveTelegramGuestAccessRequestsPath,
+} from "./guest-access-requests.js";
 
 const TRUSTED_TOOL_DEFAULTS = [
   "smart_memory_save_marker",
@@ -100,6 +104,11 @@ type GuestBot = {
       answerGuestQuery: (params: { guest_query_id: string; result: string }) => Promise<unknown>;
     };
     getFile: (fileId: string) => Promise<{ file_path?: string }>;
+    sendMessage: (
+      chatId: number | string,
+      text: string,
+      params?: { reply_markup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } },
+    ) => Promise<{ message_id?: number } | unknown>;
   };
 };
 
@@ -210,12 +219,20 @@ function resolveGuestModeConfig(params: {
     : envAllowFrom.length > 0
       ? envAllowFrom
       : params.allowFrom;
-  const trustedFrom = normalizeGuestList(
-    raw.trustedFrom ?? process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_FROM ?? configuredAllowFrom,
-  );
-  const trustedChats = normalizeGuestList(
-    raw.trustedChats ?? process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_CHATS,
-  );
+  const envTrustedFrom = normalizeGuestList(process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_FROM);
+  const rawTrustedFrom = normalizeGuestList(raw.trustedFrom);
+  const trustedFrom = normalizeGuestList([
+    ...envTrustedFrom,
+    ...(rawTrustedFrom.length > 0
+      ? rawTrustedFrom
+      : envTrustedFrom.length > 0
+        ? []
+        : normalizeGuestList(configuredAllowFrom)),
+  ]);
+  const trustedChats = normalizeGuestList([
+    ...normalizeGuestList(process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_CHATS),
+    ...normalizeGuestList(raw.trustedChats),
+  ]);
   const rawProfiles = asGuestRecord(raw.profiles);
   const publicProfile = resolveGuestProfile("public", rawProfiles.public, {
     allowFrom: [],
@@ -597,10 +614,31 @@ export async function dispatchTelegramGuestMessage(params: {
   const identity = resolveGuestIdentity(guestMessage);
   const trustProfile = resolveTrustProfile(config, identity);
   if (!trustProfile.authorized) {
+    const accessRequest = await createTelegramGuestAccessRequestAndNotifyOwner({
+      cfg: params.cfg,
+      storePath: resolveTelegramGuestAccessRequestsPath(
+        params.telegramDeps.resolveStorePath(params.cfg.session?.store),
+      ),
+      botApi: bot.api,
+      input: {
+        callerId: identity.callerId,
+        callerUsername: identity.callerUsername,
+        callerChatId: identity.callerChatId,
+        callerChatUsername: identity.callerChatUsername,
+        chatId: identity.chatId,
+        messageText: scalarToString(guestMessage.text ?? guestMessage.caption),
+      },
+    }).catch((err) => {
+      params.runtime.log?.(`telegram guest access request failed: ${String(err)}`);
+      return undefined;
+    });
     await answerGuestText(
       bot,
       guestQueryId,
-      trustProfile.reply ?? "Этот OpenClaw-бот отвечает в Guest Mode только доверенным пользователям.",
+      accessRequest?.ownerNotified
+        ? "Доступ запрещён. Запрос отправлен владельцу."
+        : trustProfile.reply ??
+            "Этот OpenClaw-бот отвечает в Guest Mode только доверенным пользователям.",
       config,
     );
     return true;

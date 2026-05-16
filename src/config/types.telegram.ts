@@ -81,6 +81,32 @@ export type TelegramCapabilitiesConfig =
       inlineButtons?: TelegramInlineButtonsScope;
     };
 
+export type TelegramGuestModeProfileConfig = {
+  allowFrom?: Array<string | number>;
+  allowChats?: Array<string | number>;
+  useMemory?: boolean;
+  allowTools?: boolean;
+  tools?: string[];
+  allowProjectContext?: boolean;
+  allowEntityMemory?: boolean;
+  allowVault?: string;
+  reply?: string;
+};
+
+export type TelegramGuestModeConfig = TelegramGuestModeProfileConfig & {
+  enabled?: boolean;
+  trustedFrom?: Array<string | number>;
+  trustedChats?: Array<string | number>;
+  publicReply?: string;
+  trustedProfile?: string;
+  defaultProfile?: string;
+  profiles?: Record<string, TelegramGuestModeProfileConfig>;
+  maxInputChars?: number;
+  maxOutputChars?: number;
+  agentProfile?: string;
+  debugSanitizedUpdates?: boolean;
+};
+
 /** Custom command definition for Telegram bot menu. */
 export type TelegramCustomCommand = {
   /** Command name (without leading /). */
@@ -121,6 +147,8 @@ export type TelegramAccountConfig = {
   replyToMode?: ReplyToMode;
   /** Direct-message threading behavior. Defaults to flat DM sessions. */
   dm?: TelegramDmConfig;
+  /** Telegram Guest Mode policy for mentions in chats where the bot is not a member. */
+  guestMode?: TelegramGuestModeConfig;
   groups?: Record<string, TelegramGroupConfig>;
   /** Per-DM configuration for Telegram DM topics (key is chat ID). */
   direct?: Record<string, TelegramDirectConfig>;

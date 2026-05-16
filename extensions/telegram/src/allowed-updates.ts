@@ -13,5 +13,8 @@ export function resolveTelegramAllowedUpdates(): ReadonlyArray<TelegramUpdateTyp
   if (!updates.includes("channel_post")) {
     updates.push("channel_post");
   }
+  if (!updates.includes("guest_message" as TelegramUpdateType)) {
+    updates.push("guest_message" as TelegramUpdateType);
+  }
   return updates;
 }

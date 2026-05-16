@@ -72,6 +72,32 @@ const TelegramCapabilitiesSchema = z.union([
     })
     .strict(),
 ]);
+const TelegramGuestModeProfileSchema = z
+  .object({
+    allowFrom: TelegramIdListSchema.optional(),
+    allowChats: TelegramIdListSchema.optional(),
+    useMemory: z.boolean().optional(),
+    allowTools: z.boolean().optional(),
+    tools: z.array(z.string()).optional(),
+    allowProjectContext: z.boolean().optional(),
+    allowEntityMemory: z.boolean().optional(),
+    allowVault: z.string().optional(),
+    reply: z.string().optional(),
+  })
+  .strict();
+const TelegramGuestModeSchema = TelegramGuestModeProfileSchema.extend({
+  enabled: z.boolean().optional(),
+  trustedFrom: TelegramIdListSchema.optional(),
+  trustedChats: TelegramIdListSchema.optional(),
+  publicReply: z.string().optional(),
+  trustedProfile: z.string().optional(),
+  defaultProfile: z.string().optional(),
+  profiles: z.record(z.string(), TelegramGuestModeProfileSchema.optional()).optional(),
+  maxInputChars: z.number().int().positive().optional(),
+  maxOutputChars: z.number().int().positive().optional(),
+  agentProfile: z.string().optional(),
+  debugSanitizedUpdates: z.boolean().optional(),
+}).strict();
 const TextChunkModeSchema = z.enum(["length", "newline"]);
 const UnifiedStreamingModeSchema = z.enum(["off", "partial", "block", "progress"]);
 const ChannelStreamingBlockSchema = z
@@ -258,6 +284,7 @@ export const TelegramAccountSchemaBase = z
     tokenFile: z.string().optional(),
     replyToMode: ReplyToModeSchema.optional(),
     dm: TelegramDmSchema.optional(),
+    guestMode: TelegramGuestModeSchema.optional(),
     groups: z.record(z.string(), TelegramGroupSchema.optional()).optional(),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.union([z.string(), z.number()]).optional(),

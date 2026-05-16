@@ -8,7 +8,7 @@ beforeAll(async () => {
 });
 
 describe("resolveTelegramAllowedUpdates", () => {
-  it("includes the default update types plus reaction and channel post support", () => {
+  it("includes the default update types plus reaction, channel post, and guest mode support", () => {
     const updates = resolveTelegramAllowedUpdates();
     expect(DEFAULT_TELEGRAM_UPDATE_TYPES).toEqual([
       "message",
@@ -33,6 +33,6 @@ describe("resolveTelegramAllowedUpdates", () => {
       "chat_boost",
       "removed_chat_boost",
     ]);
-    expect(updates).toEqual([...DEFAULT_TELEGRAM_UPDATE_TYPES, "message_reaction"]);
+    expect(updates).toEqual([...DEFAULT_TELEGRAM_UPDATE_TYPES, "message_reaction", "guest_message"]);
   });
 });

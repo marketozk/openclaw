@@ -115,6 +115,11 @@ import {
   resolveTelegramGroupAccessRequestDecision,
   resolveTelegramGroupAccessRequestsPath,
 } from "./group-access-requests.js";
+import {
+  parseTelegramGuestAccessCallbackData,
+  resolveTelegramGuestAccessRequestDecision,
+  resolveTelegramGuestAccessRequestsPath,
+} from "./guest-access-requests.js";
 import { migrateTelegramGroupConfig } from "./group-migration.js";
 import {
   resolveTelegramCommandIngressAuthorization,
@@ -1944,6 +1949,28 @@ export const registerTelegramHandlers = ({
           ),
           requestId: groupAccessCallback.requestId,
           action: groupAccessCallback.action,
+          ownerId,
+          mutateConfigFile,
+        });
+        await editCallbackMessage(result.text, { reply_markup: { inline_keyboard: [] } });
+        return;
+      }
+      const guestAccessCallback = parseTelegramGuestAccessCallbackData(data);
+      if (guestAccessCallback) {
+        const ownerId = String(callback.from?.id ?? "");
+        const ownerAllowed = resolveTelegramGroupAccessOwnerChatIds(cfg).includes(ownerId);
+        if (!ownerAllowed) {
+          await editCallbackMessage("Эту заявку может обработать только владелец.", {
+            reply_markup: { inline_keyboard: [] },
+          });
+          return;
+        }
+        const result = await resolveTelegramGuestAccessRequestDecision({
+          storePath: resolveTelegramGuestAccessRequestsPath(
+            telegramDeps.resolveStorePath(cfg.session?.store),
+          ),
+          requestId: guestAccessCallback.requestId,
+          action: guestAccessCallback.action,
           ownerId,
           mutateConfigFile,
         });
