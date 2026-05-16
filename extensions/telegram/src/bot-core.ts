@@ -24,6 +24,7 @@ import { getOrCreateAccountThrottler } from "./account-throttler.js";
 import { resolveTelegramAccount } from "./accounts.js";
 import { normalizeTelegramApiRoot } from "./api-root.js";
 import type { TelegramBotDeps } from "./bot-deps.js";
+import { dispatchTelegramGuestMessage } from "./bot-guest-mode.js";
 import { registerTelegramHandlers } from "./bot-handlers.runtime.js";
 import { createTelegramMessageProcessor } from "./bot-message.js";
 import { registerTelegramNativeCommands } from "./bot-native-commands.js";
@@ -231,7 +232,7 @@ export function createTelegramBotCore(
   const groupHistories = new Map<string, HistoryEntry[]>();
   const textLimit = resolveTextChunkLimit(cfg, "telegram", account.accountId);
   const dmPolicy = telegramCfg.dmPolicy ?? "pairing";
-  const allowFrom = opts.allowFrom ?? telegramCfg.allowFrom;
+  const allowFrom = opts.allowFrom ?? telegramCfg.allowFrom ?? [];
   const groupAllowFrom =
     opts.groupAllowFrom ?? telegramCfg.groupAllowFrom ?? telegramCfg.allowFrom ?? allowFrom;
   const replyToMode = opts.replyToMode ?? telegramCfg.replyToMode ?? "off";
@@ -373,6 +374,32 @@ export function createTelegramBotCore(
     textLimit,
     opts,
     telegramDeps,
+  });
+
+  bot.use(async (ctx, next) => {
+    try {
+      if (
+        await dispatchTelegramGuestMessage({
+          ctx,
+          bot,
+          cfg,
+          account,
+          telegramCfg,
+          allowFrom,
+          runtime,
+          telegramDeps,
+          opts,
+          telegramTransport,
+          mediaMaxBytes,
+        })
+      ) {
+        return;
+      }
+    } catch (err) {
+      runtime.error?.(danger(`telegram guest_message handler failed: ${String(err)}`));
+      return;
+    }
+    await next();
   });
 
   registerTelegramNativeCommands({
