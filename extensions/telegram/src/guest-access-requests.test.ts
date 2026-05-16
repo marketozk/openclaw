@@ -97,4 +97,60 @@ describe("Telegram Guest Mode access requests", () => {
       },
     });
   });
+
+  it("writes approvals into the account guest mode scope when the request came from that account", () => {
+    const cfg = {
+      channels: {
+        telegram: {
+          guestMode: {
+            trustedFrom: ["6673887542"],
+          },
+          accounts: {
+            max: {
+              guestMode: {
+                enabled: true,
+                trustedFrom: ["555"],
+              },
+            },
+          },
+        },
+      },
+    } as never;
+
+    applyTelegramGuestAccessDecisionToConfig({
+      cfg,
+      request: {
+        id: "tgguest_account",
+        dedupeKey: "max:caller:chat",
+        status: "pending",
+        firstSeenAt: "2026-05-16T20:00:00.000Z",
+        lastSeenAt: "2026-05-16T20:00:00.000Z",
+        count: 1,
+        accountId: "max",
+        callerId: "1281388780",
+        callerChatId: "777",
+        chatId: "888",
+      },
+      action: "allow_user_chat",
+    });
+
+    expect(cfg).toEqual({
+      channels: {
+        telegram: {
+          guestMode: {
+            trustedFrom: ["6673887542"],
+          },
+          accounts: {
+            max: {
+              guestMode: {
+                enabled: true,
+                trustedFrom: ["555", "1281388780"],
+                trustedChats: ["777", "888"],
+              },
+            },
+          },
+        },
+      },
+    });
+  });
 });

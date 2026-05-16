@@ -14,6 +14,7 @@ export type TelegramGuestAccessAction = "allow_user" | "allow_chat" | "allow_use
 export type TelegramGuestAccessRequestStatus = "pending" | "approved" | "denied" | "expired";
 
 export type TelegramGuestAccessRequestInput = {
+  accountId?: string;
   callerId: string;
   callerUsername?: string;
   callerChatId?: string;
@@ -64,9 +65,12 @@ function normalizeId(value: string | number | undefined): string {
 }
 
 function buildDedupeKey(input: TelegramGuestAccessRequestInput): string {
-  return [normalizeId(input.callerId), normalizeId(input.callerChatId), normalizeId(input.chatId)].join(
-    ":",
-  );
+  return [
+    normalizeId(input.accountId),
+    normalizeId(input.callerId),
+    normalizeId(input.callerChatId),
+    normalizeId(input.chatId),
+  ].join(":");
 }
 
 function buildRequestId(input: TelegramGuestAccessRequestInput): string {
@@ -205,6 +209,7 @@ export function buildTelegramGuestAccessOwnerMessage(params: {
   return [
     "Запрос доступа к Telegram Guest Mode",
     "",
+    request.accountId ? `Аккаунт: ${escapeLine(request.accountId)}` : undefined,
     `Пользователь: ${username || "unknown"}`,
     `User ID: ${escapeLine(request.callerId)}`,
     `Caller chat ID: ${escapeLine(request.callerChatId)}`,
@@ -216,7 +221,7 @@ export function buildTelegramGuestAccessOwnerMessage(params: {
     "",
     `Request ID: ${request.id}`,
     `Повторов: ${request.count}`,
-  ].join("\n");
+  ].filter((line): line is string => typeof line === "string").join("\n");
 }
 
 export function buildTelegramGuestAccessOwnerKeyboard(requestId: string): OwnerKeyboard {
@@ -264,6 +269,7 @@ export function applyTelegramGuestAccessDecisionToConfig(params: {
   const cfg = params.cfg as OpenClawConfig & {
     channels?: {
       telegram?: {
+        accounts?: Record<string, { guestMode?: { trustedFrom?: string[]; trustedChats?: string[] } }>;
         guestMode?: {
           trustedFrom?: string[];
           trustedChats?: string[];
@@ -273,7 +279,12 @@ export function applyTelegramGuestAccessDecisionToConfig(params: {
   };
   cfg.channels ??= {};
   cfg.channels.telegram ??= {};
-  const guestMode = (cfg.channels.telegram.guestMode ??= {});
+  const accountId = normalizeId(params.request.accountId);
+  const accountConfig = accountId ? cfg.channels.telegram.accounts?.[accountId] : undefined;
+  const guestMode =
+    accountConfig && accountConfig.guestMode
+      ? accountConfig.guestMode
+      : (cfg.channels.telegram.guestMode ??= {});
 
   if (params.action === "allow_user" || params.action === "allow_user_chat") {
     guestMode.trustedFrom = appendUnique(guestMode.trustedFrom, [params.request.callerId]);

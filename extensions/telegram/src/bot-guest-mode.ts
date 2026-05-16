@@ -153,6 +153,18 @@ function normalizeGuestList(value: unknown): string[] {
   return [];
 }
 
+function mergeGuestLists(...values: unknown[]): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    for (const entry of normalizeGuestList(value)) {
+      if (!result.includes(entry)) {
+        result.push(entry);
+      }
+    }
+  }
+  return result;
+}
+
 function resolveGuestBoolean(...values: unknown[]): boolean {
   for (const value of values) {
     if (value === true) {
@@ -203,7 +215,7 @@ function resolveGuestProfile(name: string, rawProfile: unknown = {}, fallback: u
   };
 }
 
-function resolveGuestModeConfig(params: {
+export function resolveGuestModeConfig(params: {
   cfg: OpenClawConfig;
   telegramCfg: TelegramAccountConfig;
   allowFrom: Array<string | number>;
@@ -212,28 +224,31 @@ function resolveGuestModeConfig(params: {
   const cfgRecord = asGuestRecord(params.cfg);
   const channelRecord = asGuestRecord(cfgRecord.channels);
   const cfgTelegramRecord = asGuestRecord(channelRecord.telegram);
-  const raw = asGuestRecord(telegramCfgRecord.guestMode ?? cfgTelegramRecord.guestMode);
+  const channelGuestMode = asGuestRecord(cfgTelegramRecord.guestMode);
+  const accountGuestMode = asGuestRecord(telegramCfgRecord.guestMode);
+  const raw = { ...channelGuestMode, ...accountGuestMode };
   const envAllowFrom = parseCsvList(process.env.OPENCLAW_TELEGRAM_GUEST_ALLOW_FROM);
   const configuredAllowFrom = Array.isArray(raw.allowFrom)
     ? raw.allowFrom
     : envAllowFrom.length > 0
       ? envAllowFrom
       : params.allowFrom;
-  const envTrustedFrom = normalizeGuestList(process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_FROM);
-  const rawTrustedFrom = normalizeGuestList(raw.trustedFrom);
-  const trustedFrom = normalizeGuestList([
-    ...envTrustedFrom,
-    ...(rawTrustedFrom.length > 0
-      ? rawTrustedFrom
-      : envTrustedFrom.length > 0
-        ? []
-        : normalizeGuestList(configuredAllowFrom)),
-  ]);
-  const trustedChats = normalizeGuestList([
-    ...normalizeGuestList(process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_CHATS),
-    ...normalizeGuestList(raw.trustedChats),
-  ]);
-  const rawProfiles = asGuestRecord(raw.profiles);
+  const trustedFrom = mergeGuestLists(
+    configuredAllowFrom,
+    process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_FROM,
+    channelGuestMode.trustedFrom,
+    accountGuestMode.trustedFrom,
+  );
+  const trustedChats = mergeGuestLists(
+    raw.allowChats,
+    process.env.OPENCLAW_TELEGRAM_GUEST_TRUSTED_CHATS,
+    channelGuestMode.trustedChats,
+    accountGuestMode.trustedChats,
+  );
+  const rawProfiles = {
+    ...asGuestRecord(channelGuestMode.profiles),
+    ...asGuestRecord(accountGuestMode.profiles),
+  };
   const publicProfile = resolveGuestProfile("public", rawProfiles.public, {
     allowFrom: [],
     allowChats: [],
@@ -626,6 +641,7 @@ export async function dispatchTelegramGuestMessage(params: {
         callerChatId: identity.callerChatId,
         callerChatUsername: identity.callerChatUsername,
         chatId: identity.chatId,
+        accountId: params.account.accountId,
         messageText: scalarToString(guestMessage.text ?? guestMessage.caption),
       },
     }).catch((err) => {
