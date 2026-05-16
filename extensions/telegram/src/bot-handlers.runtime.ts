@@ -1077,6 +1077,12 @@ export const registerTelegramHandlers = ({
       groupConfig,
       topicConfig,
     } = params;
+    const notifyForbiddenAccess = async () => {
+      await maybeSendForbiddenGroupAccessReply({
+        ...params,
+        messageThreadId: params.messageThreadId ?? resolvedThreadId,
+      });
+    };
     const baseAccess = evaluateTelegramGroupBaseAccess({
       isGroup,
       groupConfig,
@@ -1091,31 +1097,25 @@ export const registerTelegramHandlers = ({
     if (!baseAccess.allowed) {
       if (baseAccess.reason === "group-disabled") {
         logVerbose(`Blocked telegram group ${chatId} (group disabled)`);
-        await maybeSendForbiddenGroupAccessReply(params);
+        await notifyForbiddenAccess();
         return true;
       }
       if (baseAccess.reason === "topic-disabled") {
         logVerbose(
           `Blocked telegram topic ${chatId} (${resolvedThreadId ?? "unknown"}) (topic disabled)`,
         );
-        await maybeSendForbiddenGroupAccessReply(params);
+        await notifyForbiddenAccess();
         return true;
       }
       logVerbose(
         `Blocked telegram group sender ${senderId || "unknown"} (group allowFrom override)`,
       );
-      await maybeSendForbiddenGroupAccessReply(params);
+      await notifyForbiddenAccess();
       return true;
     }
     if (!isGroup) {
       return false;
     }
-    const notifyPolicyForbidden = async () => {
-      await maybeSendForbiddenGroupAccessReply({
-        ...params,
-        messageThreadId: params.messageThreadId ?? resolvedThreadId,
-      });
-    };
     const policyAccess = evaluateTelegramGroupPolicyAccess({
       isGroup,
       chatId,
@@ -1137,28 +1137,28 @@ export const registerTelegramHandlers = ({
     if (!policyAccess.allowed) {
       if (policyAccess.reason === "group-policy-disabled") {
         logVerbose("Blocked telegram group message (groupPolicy: disabled)");
-        await notifyPolicyForbidden();
+        await notifyForbiddenAccess();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-no-sender") {
         logVerbose("Blocked telegram group message (no sender ID, groupPolicy: allowlist)");
-        await notifyPolicyForbidden();
+        await notifyForbiddenAccess();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-empty") {
         logVerbose(
           "Blocked telegram group message (groupPolicy: allowlist, no group allowlist entries)",
         );
-        await notifyPolicyForbidden();
+        await notifyForbiddenAccess();
         return true;
       }
       if (policyAccess.reason === "group-policy-allowlist-unauthorized") {
         logVerbose(`Blocked telegram group message from ${senderId} (groupPolicy: allowlist)`);
-        await notifyPolicyForbidden();
+        await notifyForbiddenAccess();
         return true;
       }
       logger.info({ chatId, title: chatTitle, reason: "not-allowed" }, "skipping group message");
-      await notifyPolicyForbidden();
+      await notifyForbiddenAccess();
       return true;
     }
     return false;

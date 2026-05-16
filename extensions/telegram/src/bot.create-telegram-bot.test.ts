@@ -2721,6 +2721,41 @@ describe("createTelegramBot", () => {
     });
   });
 
+  it("keeps forbidden notices inside the disabled forum topic", async () => {
+    resetHarnessSpies();
+    loadConfig.mockReturnValue({
+      channels: {
+        telegram: {
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["123456789"],
+          groups: {
+            "-100123456789": {
+              requireMention: true,
+              topics: { "99": { enabled: false } },
+            },
+          },
+        },
+      },
+    });
+
+    await dispatchMessage({
+      message: {
+        chat: { id: -100123456789, type: "supergroup", title: "Forum Group", is_forum: true },
+        from: { id: 123456789, username: "testuser" },
+        text: "@openclaw_bot hello",
+        date: 1736380800,
+        message_id: 78,
+        message_thread_id: 99,
+      },
+    });
+
+    expect(replySpy).not.toHaveBeenCalled();
+    expect(sendMessageSpy).toHaveBeenCalledWith(-100123456789, "Доступ запрещён.", {
+      message_thread_id: 99,
+      reply_parameters: { message_id: 78, allow_sending_without_reply: true },
+    });
+  });
+
   it("blocks group sender not in groupAllowFrom even when sender is paired in DM store", async () => {
     resetHarnessSpies();
     loadConfig.mockReturnValue({
