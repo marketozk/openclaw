@@ -563,6 +563,7 @@ export async function buildTelegramInboundContextPayload(params: {
       Sticker: allMedia[0]?.stickerMetadata,
       StickerMediaIncluded: allMedia[0]?.stickerMetadata ? !stickerCacheHit : undefined,
       MediaFileIds: contextMedia.length > 0 ? contextMedia.map((media) => media.fileId ?? "") : undefined,
+      MediaTelegramKinds: contextMedia.length > 0 ? contextMedia.map((media) => media.telegramKind ?? "") : undefined,
       ...locationContext,
       IsForum: isForum,
       TopicName: isForum && topicName ? topicName : undefined,

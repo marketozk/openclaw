@@ -61,6 +61,7 @@ import {
   isMediaSizeLimitError,
   isRecoverableMediaGroupError,
   resolveInboundMediaFileId,
+  resolveInboundMediaKind,
 } from "./bot-handlers.media.js";
 import type { TelegramMediaRef } from "./bot-message-context.js";
 import type {
@@ -797,6 +798,7 @@ export const registerTelegramHandlers = ({
           allMedia.push({
             path: media.path,
             fileId: resolveInboundMediaFileId(ctx.message),
+            telegramKind: resolveInboundMediaKind(ctx.message),
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
           });
@@ -986,6 +988,8 @@ export const registerTelegramHandlers = ({
           mediaRef = media
             ? {
                 path: media.path,
+                fileId: replyFileId,
+                telegramKind: resolveInboundMediaKind(node.sourceMessage),
                 ...(media.contentType ? { contentType: media.contentType } : {}),
                 ...(media.stickerMetadata ? { stickerMetadata: media.stickerMetadata } : {}),
               }
@@ -1803,6 +1807,7 @@ export const registerTelegramHandlers = ({
           {
             path: media.path,
             fileId: resolveInboundMediaFileId(msg),
+            telegramKind: resolveInboundMediaKind(msg),
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
           },

@@ -14,6 +14,7 @@ import type { TelegramReplyChainEntry } from "./message-cache.js";
 export type TelegramMediaRef = {
   path: string;
   fileId?: string;
+  telegramKind?: string;
   contentType?: string;
   stickerMetadata?: StickerMetadata;
 };

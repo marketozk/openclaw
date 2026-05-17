@@ -134,7 +134,7 @@ describe("Telegram Guest Mode outbound media", () => {
     });
   });
 
-  it("allows signed image URLs without an extension but does not emit document fallback for PDFs", () => {
+  it("does not treat unknown signed URLs or PDFs as photo results", () => {
     const signedImage = buildGuestAnswerResult({
       text: "Вот картинка.",
       mediaUrls: ["https://cdn.example.com/signed/image?id=123"],
@@ -144,7 +144,7 @@ describe("Telegram Guest Mode outbound media", () => {
       mediaUrls: ["https://cdn.example.com/report.pdf?sig=1"],
     });
 
-    expect(signedImage).toMatchObject({ type: "photo" });
+    expect(signedImage).toMatchObject({ type: "article" });
     expect(pdf).toMatchObject({ type: "article" });
   });
 
@@ -156,6 +156,7 @@ describe("Telegram Guest Mode outbound media", () => {
         {
           path: "/home/node/.openclaw/media/inbound/current.jpg",
           fileId: "AgACAgIAAxkBAAIC-photo",
+          telegramKind: "photo",
           contentType: "image/jpeg",
           placeholder: "<media:current>",
           origin: "current",
@@ -175,8 +176,12 @@ describe("Telegram Guest Mode outbound media", () => {
     const result = buildGuestAnswerResult({
       text: "Вот сохраненное фото.",
       mediaUrls: [mediaPath],
-      telegramFileIdsByMediaUrl: {
-        [mediaPath]: "AgACAgIAAxkBAAIC-saved-photo",
+      telegramMediaByMediaUrl: {
+        [mediaPath]: {
+          fileId: "AgACAgIAAxkBAAIC-saved-photo",
+          telegramKind: "photo",
+          contentType: "image/jpeg",
+        },
       },
     });
 
@@ -185,5 +190,22 @@ describe("Telegram Guest Mode outbound media", () => {
       photo_file_id: "AgACAgIAAxkBAAIC-saved-photo",
       caption: "Вот сохраненное фото.",
     });
+  });
+
+  it("does not send document-originated cached media as a photo", () => {
+    const mediaPath = "/home/node/.openclaw/workspace/memory/media/telegram-media-abc123.jpg";
+    const result = buildGuestAnswerResult({
+      text: "Файл найден.",
+      mediaUrls: [mediaPath],
+      telegramMediaByMediaUrl: {
+        [mediaPath]: {
+          fileId: "BQACAgIAAxkBAAIC-doc",
+          telegramKind: "document",
+          contentType: "image/jpeg",
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ type: "article" });
   });
 });

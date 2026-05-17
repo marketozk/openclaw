@@ -27,7 +27,11 @@ import { resolveTelegramMediaRuntimeOptions } from "./accounts.js";
 import { isSenderAllowed, normalizeAllowFrom } from "./bot-access.js";
 import type { TelegramBotDeps } from "./bot-deps.js";
 import { resolveMedia } from "./bot/delivery.resolve-media.js";
-import { hasInboundMedia, resolveInboundMediaFileId } from "./bot-handlers.media.js";
+import {
+  hasInboundMedia,
+  resolveInboundMediaFileId,
+  resolveInboundMediaKind,
+} from "./bot-handlers.media.js";
 import {
   createTelegramGuestAccessRequestAndNotifyOwner,
   resolveTelegramGuestAccessRequestsPath,
@@ -94,6 +98,7 @@ type GuestIdentity = {
 type GuestMediaRef = {
   path: string;
   fileId?: string;
+  telegramKind?: string;
   contentType?: string;
   placeholder: string;
   origin: "current" | "reply";
@@ -137,8 +142,15 @@ type GuestAnswerResultParams = {
   text: string;
   mediaUrls?: string[];
   mediaRefs?: GuestMediaRef[];
-  telegramFileIdsByMediaUrl?: Record<string, string>;
+  telegramMediaByMediaUrl?: Record<string, GuestIndexedTelegramMedia>;
   maxOutputChars?: number;
+  forceArticle?: boolean;
+};
+
+type GuestIndexedTelegramMedia = {
+  fileId: string;
+  telegramKind?: string;
+  contentType?: string;
 };
 
 function truncateGuestCaption(text: string): string | undefined {
@@ -170,26 +182,26 @@ function isGuestPhotoUrl(mediaUrl: string): boolean {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return false;
   }
-  const pathname = parsed.pathname || "";
-  if (GUEST_IMAGE_EXT_RE.test(pathname)) {
-    return true;
-  }
-  return !GUEST_NON_IMAGE_EXT_RE.test(pathname);
+  return GUEST_IMAGE_EXT_RE.test(parsed.pathname || "");
+}
+
+function isGuestTelegramPhoto(media: { telegramKind?: string; contentType?: string } | undefined): boolean {
+  return media?.telegramKind === "photo";
 }
 
 function resolveGuestSendablePhoto(
   mediaUrls: readonly string[] | undefined,
   mediaRefs: readonly GuestMediaRef[] | undefined,
-  telegramFileIdsByMediaUrl: Record<string, string> | undefined,
+  telegramMediaByMediaUrl: Record<string, GuestIndexedTelegramMedia> | undefined,
 ): { photoUrl?: string; photoFileId?: string } | null {
   const refsByPath = new Map((mediaRefs ?? []).map((media) => [media.path, media]));
   for (const mediaUrl of uniqueGuestMediaUrls(mediaUrls)) {
-    const indexedFileId = telegramFileIdsByMediaUrl?.[mediaUrl];
-    if (indexedFileId) {
-      return { photoFileId: indexedFileId };
+    const indexedMedia = telegramMediaByMediaUrl?.[mediaUrl];
+    if (indexedMedia?.fileId && isGuestTelegramPhoto(indexedMedia)) {
+      return { photoFileId: indexedMedia.fileId };
     }
     const ref = refsByPath.get(mediaUrl);
-    if (ref?.fileId && (ref.contentType?.startsWith("image/") ?? true)) {
+    if (ref?.fileId && isGuestTelegramPhoto(ref)) {
       return { photoFileId: ref.fileId };
     }
     if (isGuestPhotoUrl(mediaUrl)) {
@@ -208,25 +220,49 @@ function readGuestMediaTransportIndex(): Record<string, unknown> {
   }
 }
 
-function resolveGuestTelegramFileIdsByMediaUrl(mediaUrls: readonly string[]): Record<string, string> {
+function guestTransportEntryRecord(value: unknown): Record<string, { telegramFileId?: unknown; telegramMediaKind?: unknown; contentType?: unknown }> {
+  return value && typeof value === "object"
+    ? (value as Record<string, { telegramFileId?: unknown; telegramMediaKind?: unknown; contentType?: unknown }>)
+    : {};
+}
+
+function normalizeGuestTransportEntry(entry: { telegramFileId?: unknown; telegramMediaKind?: unknown; contentType?: unknown } | undefined): GuestIndexedTelegramMedia | undefined {
+  const fileId = typeof entry?.telegramFileId === "string" ? entry.telegramFileId.trim() : "";
+  if (!fileId) {
+    return undefined;
+  }
+  const telegramKind = typeof entry?.telegramMediaKind === "string" ? entry.telegramMediaKind.trim().toLowerCase() : "";
+  const contentType = typeof entry?.contentType === "string" ? entry.contentType.trim().toLowerCase() : "";
+  return {
+    fileId,
+    ...(telegramKind ? { telegramKind } : {}),
+    ...(contentType ? { contentType } : {}),
+  };
+}
+
+function resolveGuestTelegramMediaByMediaUrl(mediaUrls: readonly string[], accountId: string): Record<string, GuestIndexedTelegramMedia> {
   const index = readGuestMediaTransportIndex();
-  const media = index.media && typeof index.media === "object"
-    ? (index.media as Record<string, { telegramFileId?: unknown }>)
-    : {};
-  const byContentHash = index.byContentHash && typeof index.byContentHash === "object"
-    ? (index.byContentHash as Record<string, { telegramFileId?: unknown }>)
-    : {};
-  const resolved: Record<string, string> = {};
+  const scopedIndex = accountId && index.byAccount && typeof index.byAccount === "object"
+    ? (index.byAccount as Record<string, unknown>)[accountId]
+    : undefined;
+  const scoped = scopedIndex && typeof scopedIndex === "object" ? (scopedIndex as Record<string, unknown>) : {};
+  const media = accountId
+    ? guestTransportEntryRecord(scoped.media)
+    : guestTransportEntryRecord(index.media);
+  const byContentHash = accountId
+    ? guestTransportEntryRecord(scoped.byContentHash)
+    : guestTransportEntryRecord(index.byContentHash);
+  const resolved: Record<string, GuestIndexedTelegramMedia> = {};
   for (const mediaUrl of uniqueGuestMediaUrls(mediaUrls)) {
-    const direct = media[mediaUrl]?.telegramFileId;
-    if (typeof direct === "string" && direct.trim()) {
-      resolved[mediaUrl] = direct.trim();
+    const direct = normalizeGuestTransportEntry(media[mediaUrl]);
+    if (direct) {
+      resolved[mediaUrl] = direct;
       continue;
     }
-    const hashMatch = /telegram-media-([a-f0-9]{16,128})\.[a-z0-9]+$/i.exec(mediaUrl);
-    const byHash = hashMatch ? byContentHash[hashMatch[1]]?.telegramFileId : undefined;
-    if (typeof byHash === "string" && byHash.trim()) {
-      resolved[mediaUrl] = byHash.trim();
+    const hashMatch = /telegram-media-([a-f0-9]{12,128})\.[a-z0-9]+$/i.exec(mediaUrl);
+    const byHash = hashMatch ? normalizeGuestTransportEntry(byContentHash[hashMatch[1]]) : undefined;
+    if (byHash) {
+      resolved[mediaUrl] = byHash;
     }
   }
   return resolved;
@@ -238,10 +274,13 @@ export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<
     params.text || "Не удалось подготовить ответ.",
     maxOutputChars,
   );
+  if (params.forceArticle) {
+    return buildGuestArticleAnswerResult(messageText);
+  }
   const photo = resolveGuestSendablePhoto(
     params.mediaUrls,
     params.mediaRefs,
-    params.telegramFileIdsByMediaUrl,
+    params.telegramMediaByMediaUrl,
   );
   if (photo?.photoFileId || photo?.photoUrl) {
     return {
@@ -254,6 +293,10 @@ export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<
       ...(truncateGuestCaption(messageText) ? { caption: truncateGuestCaption(messageText) } : {}),
     };
   }
+  return buildGuestArticleAnswerResult(messageText);
+}
+
+function buildGuestArticleAnswerResult(messageText: string): Record<string, unknown> {
   return {
     type: "article",
     id: randomUUID(),
@@ -646,15 +689,30 @@ async function answerGuestReply(
     text: string;
     mediaUrls?: string[];
     mediaRefs?: GuestMediaRef[];
-    telegramFileIdsByMediaUrl?: Record<string, string>;
+    telegramMediaByMediaUrl?: Record<string, GuestIndexedTelegramMedia>;
   },
   config: GuestConfig | GuestProfile,
 ): Promise<void> {
   const maxOutputChars = "maxOutputChars" in config ? config.maxOutputChars : 3500;
-  await bot.api.raw.answerGuestQuery({
-    guest_query_id: guestQueryId,
-    result: JSON.stringify(buildGuestAnswerResult({ ...reply, maxOutputChars })),
-  });
+  const result = buildGuestAnswerResult({ ...reply, maxOutputChars });
+  try {
+    await bot.api.raw.answerGuestQuery({
+      guest_query_id: guestQueryId,
+      result: JSON.stringify(result),
+    });
+  } catch (err) {
+    if (result.type !== "photo") {
+      throw err;
+    }
+    await bot.api.raw.answerGuestQuery({
+      guest_query_id: guestQueryId,
+      result: JSON.stringify(buildGuestAnswerResult({
+        text: reply.text,
+        maxOutputChars,
+        forceArticle: true,
+      })),
+    });
+  }
 }
 
 async function answerGuestText(
@@ -710,6 +768,7 @@ async function resolveGuestMediaFromMessage(params: {
       {
         path: media.path,
         fileId,
+        telegramKind: resolveInboundMediaKind(inboundMessage),
         contentType: media.contentType,
         placeholder: media.placeholder,
         origin: params.origin,
@@ -882,6 +941,7 @@ export async function dispatchTelegramGuestMessage(params: {
     MediaPaths: guestMedia.length > 0 ? guestMedia.map((media) => media.path) : undefined,
     MediaUrls: guestMedia.length > 0 ? guestMedia.map((media) => media.path) : undefined,
     MediaFileIds: guestMedia.length > 0 ? guestMedia.map((media) => media.fileId ?? "") : undefined,
+    MediaTelegramKinds: guestMedia.length > 0 ? guestMedia.map((media) => media.telegramKind ?? "") : undefined,
     MediaTypes:
       guestMedia.length > 0
         ? guestMedia.map((media) => media.contentType ?? "application/octet-stream")
@@ -999,7 +1059,7 @@ export async function dispatchTelegramGuestMessage(params: {
       text: finalText || "Готово.",
       mediaUrls: finalMediaUrls,
       mediaRefs: guestMedia,
-      telegramFileIdsByMediaUrl: resolveGuestTelegramFileIdsByMediaUrl(finalMediaUrls),
+      telegramMediaByMediaUrl: resolveGuestTelegramMediaByMediaUrl(finalMediaUrls, route.accountId),
     },
     config,
   );
