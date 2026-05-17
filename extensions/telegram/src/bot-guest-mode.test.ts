@@ -2,7 +2,11 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { dispatchTelegramGuestMessage, resolveGuestModeConfig } from "./bot-guest-mode.js";
+import {
+  buildGuestAnswerResult,
+  dispatchTelegramGuestMessage,
+  resolveGuestModeConfig,
+} from "./bot-guest-mode.js";
 
 describe("Telegram Guest Mode config", () => {
   it("keeps channel allowFrom trusted after a guest approval adds trustedFrom", () => {
@@ -112,5 +116,43 @@ describe("Telegram Guest Mode config", () => {
         result: expect.stringContaining("Доступ запрещ"),
       }),
     );
+  });
+});
+
+describe("Telegram Guest Mode outbound media", () => {
+  it("answers trusted guest media as a photo result for public image URLs", () => {
+    const result = buildGuestAnswerResult({
+      text: "Вот меню.",
+      mediaUrls: ["https://example.com/menu.jpg"],
+    });
+
+    expect(result).toMatchObject({
+      type: "photo",
+      photo_url: "https://example.com/menu.jpg",
+      thumbnail_url: "https://example.com/menu.jpg",
+      caption: "Вот меню.",
+    });
+  });
+
+  it("answers current guest image media through cached Telegram file id", () => {
+    const result = buildGuestAnswerResult({
+      text: "Прикрепляю фото.",
+      mediaUrls: ["/home/node/.openclaw/media/inbound/current.jpg"],
+      mediaRefs: [
+        {
+          path: "/home/node/.openclaw/media/inbound/current.jpg",
+          fileId: "AgACAgIAAxkBAAIC-photo",
+          contentType: "image/jpeg",
+          placeholder: "<media:current>",
+          origin: "current",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      type: "photo",
+      photo_file_id: "AgACAgIAAxkBAAIC-photo",
+      caption: "Прикрепляю фото.",
+    });
   });
 });

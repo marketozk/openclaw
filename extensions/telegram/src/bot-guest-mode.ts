@@ -91,6 +91,7 @@ type GuestIdentity = {
 
 type GuestMediaRef = {
   path: string;
+  fileId?: string;
   contentType?: string;
   placeholder: string;
   origin: "current" | "reply";
@@ -120,6 +121,93 @@ type GuestContext = {
     username?: string;
   };
 };
+
+const GUEST_PHOTO_URL_RE = /^https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:[?#]\S*)?$/i;
+const GUEST_HTTP_URL_RE = /^https?:\/\//i;
+
+type GuestAnswerResultParams = {
+  text: string;
+  mediaUrls?: string[];
+  mediaRefs?: GuestMediaRef[];
+  maxOutputChars?: number;
+};
+
+function truncateGuestCaption(text: string): string | undefined {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.slice(0, 1024) : undefined;
+}
+
+function uniqueGuestMediaUrls(mediaUrls: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of mediaUrls ?? []) {
+    const mediaUrl = typeof value === "string" ? value.trim() : "";
+    if (!mediaUrl || seen.has(mediaUrl)) {
+      continue;
+    }
+    seen.add(mediaUrl);
+    result.push(mediaUrl);
+  }
+  return result;
+}
+
+function resolveGuestSendablePhoto(
+  mediaUrls: readonly string[] | undefined,
+  mediaRefs: readonly GuestMediaRef[] | undefined,
+): { photoUrl?: string; photoFileId?: string } | null {
+  const refsByPath = new Map((mediaRefs ?? []).map((media) => [media.path, media]));
+  for (const mediaUrl of uniqueGuestMediaUrls(mediaUrls)) {
+    const ref = refsByPath.get(mediaUrl);
+    if (ref?.fileId && (ref.contentType?.startsWith("image/") ?? true)) {
+      return { photoFileId: ref.fileId };
+    }
+    if (GUEST_PHOTO_URL_RE.test(mediaUrl)) {
+      return { photoUrl: mediaUrl };
+    }
+  }
+  return null;
+}
+
+export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<string, unknown> {
+  const maxOutputChars = params.maxOutputChars ?? 3500;
+  const messageText = truncateGuestText(
+    params.text || "Не удалось подготовить ответ.",
+    maxOutputChars,
+  );
+  const photo = resolveGuestSendablePhoto(params.mediaUrls, params.mediaRefs);
+  if (photo?.photoFileId || photo?.photoUrl) {
+    return {
+      type: "photo",
+      id: randomUUID(),
+      title: "Ответ OpenClaw",
+      ...(photo.photoFileId
+        ? { photo_file_id: photo.photoFileId }
+        : { photo_url: photo.photoUrl, thumbnail_url: photo.photoUrl }),
+      ...(truncateGuestCaption(messageText) ? { caption: truncateGuestCaption(messageText) } : {}),
+    };
+  }
+  const remoteDocumentUrl = uniqueGuestMediaUrls(params.mediaUrls).find((mediaUrl) =>
+    GUEST_HTTP_URL_RE.test(mediaUrl),
+  );
+  if (remoteDocumentUrl) {
+    return {
+      type: "document",
+      id: randomUUID(),
+      title: "Файл OpenClaw",
+      document_url: remoteDocumentUrl,
+      mime_type: "application/octet-stream",
+      ...(truncateGuestCaption(messageText) ? { caption: truncateGuestCaption(messageText) } : {}),
+    };
+  }
+  return {
+    type: "article",
+    id: randomUUID(),
+    title: "Ответ OpenClaw",
+    input_message_content: {
+      message_text: messageText.slice(0, 4096),
+    },
+  };
+}
 
 function asGuestRecord(value: unknown): GuestRecord {
   return Boolean(value) && typeof value === "object" ? (value as GuestRecord) : {};
@@ -496,25 +584,26 @@ function buildGuestSessionKey(
   return `agent:${sanitizeAgentId(route.agentId)}:telegram:guest:public:${identity.callerId || "unknown"}:${guestQueryId}`;
 }
 
+async function answerGuestReply(
+  bot: GuestBot,
+  guestQueryId: string,
+  reply: { text: string; mediaUrls?: string[]; mediaRefs?: GuestMediaRef[] },
+  config: GuestConfig | GuestProfile,
+): Promise<void> {
+  const maxOutputChars = "maxOutputChars" in config ? config.maxOutputChars : 3500;
+  await bot.api.raw.answerGuestQuery({
+    guest_query_id: guestQueryId,
+    result: JSON.stringify(buildGuestAnswerResult({ ...reply, maxOutputChars })),
+  });
+}
+
 async function answerGuestText(
   bot: GuestBot,
   guestQueryId: string,
   text: string,
   config: GuestConfig | GuestProfile,
 ): Promise<void> {
-  const maxOutputChars = "maxOutputChars" in config ? config.maxOutputChars : 3500;
-  const messageText = truncateGuestText(text || "Не удалось подготовить ответ.", maxOutputChars);
-  await bot.api.raw.answerGuestQuery({
-    guest_query_id: guestQueryId,
-    result: JSON.stringify({
-      type: "article",
-      id: randomUUID(),
-      title: "Ответ OpenClaw",
-      input_message_content: {
-        message_text: messageText.slice(0, 4096),
-      },
-    }),
-  });
+  await answerGuestReply(bot, guestQueryId, { text }, config);
 }
 
 async function resolveGuestMediaFromMessage(params: {
@@ -560,6 +649,7 @@ async function resolveGuestMediaFromMessage(params: {
     return [
       {
         path: media.path,
+        fileId,
         contentType: media.contentType,
         placeholder: media.placeholder,
         origin: params.origin,
@@ -749,6 +839,7 @@ export async function dispatchTelegramGuestMessage(params: {
   };
 
   let finalText = "";
+  const finalMediaUrls: string[] = [];
   let errorText = "";
   try {
     const { onModelSelected, ...replyPipeline } = (
@@ -808,6 +899,11 @@ export async function dispatchTelegramGuestMessage(params: {
                   if (reply.text) {
                     finalText += `${finalText ? "\n" : ""}${reply.text}`;
                   }
+                  for (const mediaUrl of reply.mediaUrls ?? []) {
+                    if (mediaUrl && !finalMediaUrls.includes(mediaUrl)) {
+                      finalMediaUrls.push(mediaUrl);
+                    }
+                  }
                 },
                 onSkip: () => {},
                 onError: (err: unknown) => {
@@ -835,6 +931,11 @@ export async function dispatchTelegramGuestMessage(params: {
     params.runtime.error?.(danger(`telegram guest dispatch failed: ${errorText}`));
     finalText = "Не удалось подготовить ответ в Guest Mode. Попробуй еще раз коротким запросом.";
   }
-  await answerGuestText(bot, guestQueryId, finalText || "Готово.", config);
+  await answerGuestReply(
+    bot,
+    guestQueryId,
+    { text: finalText || "Готово.", mediaUrls: finalMediaUrls, mediaRefs: guestMedia },
+    config,
+  );
   return true;
 }
