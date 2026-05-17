@@ -266,6 +266,7 @@ export async function resolveTelegramInboundBody(params: {
         AccountId: accountId,
         MessageThreadId: replyThreadId,
         MediaPaths: allMedia.length > 0 ? allMedia.map((m) => m.path) : undefined,
+        MediaFileIds: allMedia.length > 0 ? allMedia.map((m) => m.fileId ?? "") : undefined,
         MediaTypes:
           allMedia.length > 0
             ? (allMedia.map((m) => m.contentType).filter(Boolean) as string[])

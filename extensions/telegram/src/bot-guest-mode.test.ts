@@ -134,6 +134,20 @@ describe("Telegram Guest Mode outbound media", () => {
     });
   });
 
+  it("allows signed image URLs without an extension but does not emit document fallback for PDFs", () => {
+    const signedImage = buildGuestAnswerResult({
+      text: "Вот картинка.",
+      mediaUrls: ["https://cdn.example.com/signed/image?id=123"],
+    });
+    const pdf = buildGuestAnswerResult({
+      text: "Файл найден.",
+      mediaUrls: ["https://cdn.example.com/report.pdf?sig=1"],
+    });
+
+    expect(signedImage).toMatchObject({ type: "photo" });
+    expect(pdf).toMatchObject({ type: "article" });
+  });
+
   it("answers current guest image media through cached Telegram file id", () => {
     const result = buildGuestAnswerResult({
       text: "Прикрепляю фото.",
@@ -153,6 +167,23 @@ describe("Telegram Guest Mode outbound media", () => {
       type: "photo",
       photo_file_id: "AgACAgIAAxkBAAIC-photo",
       caption: "Прикрепляю фото.",
+    });
+  });
+
+  it("answers saved local memory images through indexed Telegram file id", () => {
+    const mediaPath = "/home/node/.openclaw/workspace/memory/media/telegram-media-abc123.jpg";
+    const result = buildGuestAnswerResult({
+      text: "Вот сохраненное фото.",
+      mediaUrls: [mediaPath],
+      telegramFileIdsByMediaUrl: {
+        [mediaPath]: "AgACAgIAAxkBAAIC-saved-photo",
+      },
+    });
+
+    expect(result).toMatchObject({
+      type: "photo",
+      photo_file_id: "AgACAgIAAxkBAAIC-saved-photo",
+      caption: "Вот сохраненное фото.",
     });
   });
 });

@@ -796,6 +796,7 @@ export const registerTelegramHandlers = ({
         if (media) {
           allMedia.push({
             path: media.path,
+            fileId: resolveInboundMediaFileId(ctx.message),
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
           });
@@ -1801,6 +1802,7 @@ export const registerTelegramHandlers = ({
       ? [
           {
             path: media.path,
+            fileId: resolveInboundMediaFileId(msg),
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
           },

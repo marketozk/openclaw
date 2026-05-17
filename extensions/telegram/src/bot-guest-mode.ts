@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   formatInboundEnvelope,
   resolveEnvelopeFormatOptions,
@@ -122,13 +124,20 @@ type GuestContext = {
   };
 };
 
-const GUEST_PHOTO_URL_RE = /^https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:[?#]\S*)?$/i;
-const GUEST_HTTP_URL_RE = /^https?:\/\//i;
+const GUEST_IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif)$/i;
+const GUEST_NON_IMAGE_EXT_RE = /\.(?:pdf|docx?|xlsx?|pptx?|zip|rar|7z|mp3|ogg|opus|wav|mp4|mov|avi|webm|txt|json|html?)$/i;
+const SMART_MEMORY_MEDIA_TRANSPORT_INDEX_PATH = path.join(
+  process.env.HOME || "/home/node",
+  ".openclaw",
+  "smart-memory-router",
+  "media-transport-index.json",
+);
 
 type GuestAnswerResultParams = {
   text: string;
   mediaUrls?: string[];
   mediaRefs?: GuestMediaRef[];
+  telegramFileIdsByMediaUrl?: Record<string, string>;
   maxOutputChars?: number;
 };
 
@@ -151,21 +160,76 @@ function uniqueGuestMediaUrls(mediaUrls: readonly string[] | undefined): string[
   return result;
 }
 
+function isGuestPhotoUrl(mediaUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(mediaUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+  const pathname = parsed.pathname || "";
+  if (GUEST_IMAGE_EXT_RE.test(pathname)) {
+    return true;
+  }
+  return !GUEST_NON_IMAGE_EXT_RE.test(pathname);
+}
+
 function resolveGuestSendablePhoto(
   mediaUrls: readonly string[] | undefined,
   mediaRefs: readonly GuestMediaRef[] | undefined,
+  telegramFileIdsByMediaUrl: Record<string, string> | undefined,
 ): { photoUrl?: string; photoFileId?: string } | null {
   const refsByPath = new Map((mediaRefs ?? []).map((media) => [media.path, media]));
   for (const mediaUrl of uniqueGuestMediaUrls(mediaUrls)) {
+    const indexedFileId = telegramFileIdsByMediaUrl?.[mediaUrl];
+    if (indexedFileId) {
+      return { photoFileId: indexedFileId };
+    }
     const ref = refsByPath.get(mediaUrl);
     if (ref?.fileId && (ref.contentType?.startsWith("image/") ?? true)) {
       return { photoFileId: ref.fileId };
     }
-    if (GUEST_PHOTO_URL_RE.test(mediaUrl)) {
+    if (isGuestPhotoUrl(mediaUrl)) {
       return { photoUrl: mediaUrl };
     }
   }
   return null;
+}
+
+function readGuestMediaTransportIndex(): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(SMART_MEMORY_MEDIA_TRANSPORT_INDEX_PATH, "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function resolveGuestTelegramFileIdsByMediaUrl(mediaUrls: readonly string[]): Record<string, string> {
+  const index = readGuestMediaTransportIndex();
+  const media = index.media && typeof index.media === "object"
+    ? (index.media as Record<string, { telegramFileId?: unknown }>)
+    : {};
+  const byContentHash = index.byContentHash && typeof index.byContentHash === "object"
+    ? (index.byContentHash as Record<string, { telegramFileId?: unknown }>)
+    : {};
+  const resolved: Record<string, string> = {};
+  for (const mediaUrl of uniqueGuestMediaUrls(mediaUrls)) {
+    const direct = media[mediaUrl]?.telegramFileId;
+    if (typeof direct === "string" && direct.trim()) {
+      resolved[mediaUrl] = direct.trim();
+      continue;
+    }
+    const hashMatch = /telegram-media-([a-f0-9]{16,128})\.[a-z0-9]+$/i.exec(mediaUrl);
+    const byHash = hashMatch ? byContentHash[hashMatch[1]]?.telegramFileId : undefined;
+    if (typeof byHash === "string" && byHash.trim()) {
+      resolved[mediaUrl] = byHash.trim();
+    }
+  }
+  return resolved;
 }
 
 export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<string, unknown> {
@@ -174,7 +238,11 @@ export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<
     params.text || "Не удалось подготовить ответ.",
     maxOutputChars,
   );
-  const photo = resolveGuestSendablePhoto(params.mediaUrls, params.mediaRefs);
+  const photo = resolveGuestSendablePhoto(
+    params.mediaUrls,
+    params.mediaRefs,
+    params.telegramFileIdsByMediaUrl,
+  );
   if (photo?.photoFileId || photo?.photoUrl) {
     return {
       type: "photo",
@@ -183,19 +251,6 @@ export function buildGuestAnswerResult(params: GuestAnswerResultParams): Record<
       ...(photo.photoFileId
         ? { photo_file_id: photo.photoFileId }
         : { photo_url: photo.photoUrl, thumbnail_url: photo.photoUrl }),
-      ...(truncateGuestCaption(messageText) ? { caption: truncateGuestCaption(messageText) } : {}),
-    };
-  }
-  const remoteDocumentUrl = uniqueGuestMediaUrls(params.mediaUrls).find((mediaUrl) =>
-    GUEST_HTTP_URL_RE.test(mediaUrl),
-  );
-  if (remoteDocumentUrl) {
-    return {
-      type: "document",
-      id: randomUUID(),
-      title: "Файл OpenClaw",
-      document_url: remoteDocumentUrl,
-      mime_type: "application/octet-stream",
       ...(truncateGuestCaption(messageText) ? { caption: truncateGuestCaption(messageText) } : {}),
     };
   }
@@ -587,7 +642,12 @@ function buildGuestSessionKey(
 async function answerGuestReply(
   bot: GuestBot,
   guestQueryId: string,
-  reply: { text: string; mediaUrls?: string[]; mediaRefs?: GuestMediaRef[] },
+  reply: {
+    text: string;
+    mediaUrls?: string[];
+    mediaRefs?: GuestMediaRef[];
+    telegramFileIdsByMediaUrl?: Record<string, string>;
+  },
   config: GuestConfig | GuestProfile,
 ): Promise<void> {
   const maxOutputChars = "maxOutputChars" in config ? config.maxOutputChars : 3500;
@@ -821,6 +881,7 @@ export async function dispatchTelegramGuestMessage(params: {
     MediaUrl: guestMedia[0]?.path,
     MediaPaths: guestMedia.length > 0 ? guestMedia.map((media) => media.path) : undefined,
     MediaUrls: guestMedia.length > 0 ? guestMedia.map((media) => media.path) : undefined,
+    MediaFileIds: guestMedia.length > 0 ? guestMedia.map((media) => media.fileId ?? "") : undefined,
     MediaTypes:
       guestMedia.length > 0
         ? guestMedia.map((media) => media.contentType ?? "application/octet-stream")
@@ -934,7 +995,12 @@ export async function dispatchTelegramGuestMessage(params: {
   await answerGuestReply(
     bot,
     guestQueryId,
-    { text: finalText || "Готово.", mediaUrls: finalMediaUrls, mediaRefs: guestMedia },
+    {
+      text: finalText || "Готово.",
+      mediaUrls: finalMediaUrls,
+      mediaRefs: guestMedia,
+      telegramFileIdsByMediaUrl: resolveGuestTelegramFileIdsByMediaUrl(finalMediaUrls),
+    },
     config,
   );
   return true;
