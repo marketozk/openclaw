@@ -601,8 +601,10 @@ export function buildGuestPrompt(params: {
     params.config.allowVault === "confirm"
       ? "Vault/секреты: можно сохранять секреты через smart_memory_save_secret и показывать redacted-кандидаты через smart_memory_lookup_secret; не раскрывай raw значения в Guest Mode/group chats. Для раскрытия нужен owner-verified private owner DM/private operator surface, confirmReveal: true и privateSurface: true."
       : "Vault/секреты запрещены.",
-    'Memory retrieval: если пользователь просит всю заметку, полный текст, дословно, сам текст, всю информацию или что было сохранено, вызови smart_memory_get_entity_context с outputMode: "full" и includeFullText: true, либо smart_memory_get_full_artifact при известном artifactId.',
-    "Do not summarize full-note requests. If the tool returns pagination, answer with Part 1/N and the next part number.",
+    'Memory retrieval: если пользователь просит всю заметку, полный текст, дословно, сам текст, всю информацию или что было сохранено, вызови smart_memory_get_entity_context с complete: true, collectionMode: "auto", noSilentOmission: true, outputMode: "full" и includeFullText: true, либо smart_memory_get_full_artifact при известном artifactId.',
+    "For all/full/no-omission memory requests, inspect coverage, coverage.omitted, nextCursor, files, media, and mediaDelivery.mediaUrls before answering; do not silently omit returned files or media.",
+    "If mediaDelivery.mediaUrls are returned, preserve them in the final reply so Telegram delivery can attach/send the media.",
+    "Do not summarize full-note requests. If the tool returns pagination or nextCursor, answer with Part 1/N and the next cursor/part number.",
     "Secret saves: для явной просьбы trusted owner сохранить API key/token/password используй smart_memory_save_secret; связывай linkedEntity, linkedArtifactId или linkedNoteTitle, если контекст это дает. В обычных receipts используй value=<redacted>.",
     "Secret reveal: в Guest Mode/group chats не раскрывай raw секреты и не вызывай smart_memory_reveal_secret даже при словах подтверждения; используй redacted lookup и попроси владельца обратиться в private owner DM.",
     "Дай короткий plain-text ответ, пригодный для отправки в диалог.",

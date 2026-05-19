@@ -31,9 +31,15 @@ describe("Guest Mode memory contract", () => {
 
     expect(prompt).toContain("outputMode: \"full\"");
     expect(prompt).toContain("includeFullText: true");
+    expect(prompt).toContain("complete: true");
+    expect(prompt).toContain("collectionMode: \"auto\"");
+    expect(prompt).toContain("noSilentOmission: true");
+    expect(prompt).toContain("coverage.omitted");
+    expect(prompt).toContain("mediaDelivery.mediaUrls");
     expect(prompt).toContain("smart_memory_get_full_artifact");
     expect(prompt).toContain("Do not summarize full-note requests");
     expect(prompt).toContain("Part 1/N");
+    expect(prompt).toContain("nextCursor");
   });
 
   it("allows trusted owner secret saves but redirects raw reveal to private owner DM", () => {
