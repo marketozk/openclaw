@@ -5,6 +5,7 @@ services:
       context: .
       args:
         OPENCLAW_EXTENSIONS: ${OPENCLAW_EXTENSIONS:-codex}
+        OPENCLAW_INSTALL_BROWSER: ${OPENCLAW_INSTALL_BROWSER:-}
     env_file:
       - path: .env
         required: false
