@@ -713,3 +713,25 @@ function loadPluginRegistrationContractRegistry(): PluginRegistrationContractEnt
 
 export const pluginRegistrationContractRegistry: PluginRegistrationContractEntry[] =
   createLazyArrayView(loadPluginRegistrationContractRegistry);
+
+// ROB-111: tool names of NON-bundled (extension/operator-installed) plugins that declared
+// `contracts.tools`. Used ONLY for agent-path media trust (see isToolResultMediaTrusted) — kept
+// separate from pluginRegistrationContractRegistry so the bundled registry's other consumers
+// (tts/plugin-sdk) are unaffected. Empty under VITEST so unit tests never inherit ambient
+// extension trust (the trust decision is unit-tested via a pure resolver with synthetic entries).
+export type ExtensionPluginMediaToolEntry = { pluginId: string; toolNames: string[] };
+function loadExtensionPluginMediaToolEntries(): ExtensionPluginMediaToolEntry[] {
+  if (process.env.VITEST) {
+    return [];
+  }
+  return loadPluginManifestRegistry({})
+    .plugins.filter(
+      (plugin) => plugin.origin !== "bundled" && (plugin.contracts?.tools?.length ?? 0) > 0,
+    )
+    .map((plugin) => ({
+      pluginId: plugin.id,
+      toolNames: uniqueStrings(plugin.contracts?.tools ?? []),
+    }));
+}
+export const extensionPluginMediaToolRegistry: ExtensionPluginMediaToolEntry[] =
+  createLazyArrayView(loadExtensionPluginMediaToolEntries);

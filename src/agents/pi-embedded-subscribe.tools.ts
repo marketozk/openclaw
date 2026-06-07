@@ -2,7 +2,10 @@ import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.
 import { normalizeTargetForProvider } from "../infra/outbound/target-normalization.js";
 import { redactSensitiveFieldValue, redactToolPayloadText } from "../logging/redact.js";
 import { splitMediaFromOutput } from "../media/parse.js";
-import { pluginRegistrationContractRegistry } from "../plugins/contracts/registry.js";
+import {
+  extensionPluginMediaToolRegistry,
+  pluginRegistrationContractRegistry,
+} from "../plugins/contracts/registry.js";
 import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
@@ -277,13 +280,70 @@ function isExternalToolResult(result: unknown): boolean {
   return typeof details.mcpServer === "string" || typeof details.mcpTool === "string";
 }
 
+// ROB-111: agent-path media trust for NON-bundled (extension) plugin tools.
+// Env OPENCLAW_TRUSTED_MEDIA_PLUGIN_IDS controls this surface:
+//   unset/empty   -> trust ALL extension plugins (default-ON; operator decision)
+//   "none"/"off"/"-" -> trust NO extensions (bundled-only; full kill-switch)
+//   "a,b,c"       -> restrict trust to those plugin ids (bundled tools always trusted)
+// Pure + exported for unit tests. Env is read at the call site (resolveExtensionMediaTrust) so a
+// Gateway recreate with a changed value takes effect without a code rebuild.
+export function resolveExtensionMediaTrust(
+  envValue: string | undefined,
+): { mode: "all" | "off" | "restrict"; ids: ReadonlySet<string> } {
+  const raw = (envValue ?? "").trim();
+  if (!raw) {
+    return { mode: "all", ids: new Set() };
+  }
+  const lower = raw.toLowerCase();
+  if (lower === "none" || lower === "off" || raw === "-") {
+    return { mode: "off", ids: new Set() };
+  }
+  return {
+    mode: "restrict",
+    ids: new Set(
+      raw
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  };
+}
+
+export function isExtensionToolMediaTrusted(
+  normalizedToolName: string,
+  entries: ReadonlyArray<{ pluginId: string; toolNames: string[] }>,
+  envValue: string | undefined,
+): boolean {
+  const trust = resolveExtensionMediaTrust(envValue);
+  if (trust.mode === "off") {
+    return false;
+  }
+  for (const entry of entries) {
+    if (trust.mode === "restrict" && !trust.ids.has(entry.pluginId)) {
+      continue;
+    }
+    if (entry.toolNames.some((name) => normalizeToolName(name) === normalizedToolName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isToolResultMediaTrusted(toolName?: string, result?: unknown): boolean {
   if (!toolName || isExternalToolResult(result)) {
     return false;
   }
   const normalized = normalizeToolName(toolName);
-  return (
-    TRUSTED_TOOL_RESULT_MEDIA.has(normalized) || TRUSTED_BUNDLED_PLUGIN_MEDIA_TOOLS.has(normalized)
+  if (
+    TRUSTED_TOOL_RESULT_MEDIA.has(normalized) ||
+    TRUSTED_BUNDLED_PLUGIN_MEDIA_TOOLS.has(normalized)
+  ) {
+    return true;
+  }
+  return isExtensionToolMediaTrusted(
+    normalized,
+    extensionPluginMediaToolRegistry,
+    process.env.OPENCLAW_TRUSTED_MEDIA_PLUGIN_IDS,
   );
 }
 
