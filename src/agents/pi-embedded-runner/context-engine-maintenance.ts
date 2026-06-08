@@ -669,6 +669,16 @@ export async function runContextEngineMaintenance(params: {
     return undefined;
   }
 
+  // ROB-117 guard: skip per-turn context-engine maintenance for the heartbeat session.
+  // Heartbeat runs through pi-embedded only to fire heartbeat_prompt_contribution; its
+  // after-turn maintenance is itself an embedded turn that self-reschedules into a
+  // continuous loop (codex-fallback drain, confirmed via Codex review). Skipping the
+  // per-turn maintenance keeps the hook firing while killing the loop. Other sessions,
+  // bootstrap/compaction reasons, and the prompt hook are unaffected.
+  if (params.reason === "turn" && (params.sessionKey ?? "").endsWith(":heartbeat")) {
+    return undefined;
+  }
+
   const executionMode = params.executionMode ?? "foreground";
   const shouldDefer =
     params.reason === "turn" &&
