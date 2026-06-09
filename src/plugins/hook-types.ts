@@ -370,6 +370,10 @@ export type PluginHookBeforeDispatchEvent = {
   senderId?: string;
   isGroup?: boolean;
   timestamp?: number;
+  // Local paths of media OpenClaw already staged for THIS message (e.g. Telegram
+  // downloads). Lets before_dispatch plugins handle attachments deterministically
+  // instead of guessing from a recent-inbound directory scan. Trusted-plugin data.
+  mediaPaths?: string[];
 };
 
 export type PluginHookBeforeDispatchContext = {
